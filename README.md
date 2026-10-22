@@ -13,14 +13,14 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 
 | id | site | type | country | leaning (rough) | articles / posts from | comments from | est. comments per day |
 |---|---|---|---|---|---|---|---|
-| `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | VOL_tagesschau |
-| `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | VOL_tichyseinblick |
-| `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | VOL_freitag |
-| `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | VOL_taz |
-| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | VOL_derstandard |
-| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | VOL_blick |
-| `mastodon` | [norden.social](https://norden.social), [troet.cafe](https://troet.cafe) | social | DE | tends left | public local timelines (API) | the posts themselves | VOL_mastodon |
-| `bluesky` | [Bluesky](https://bsky.app), German-language sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | VOL_bluesky |
+| `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | ~750 (≈5 discussions/day × 100–200) |
+| `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | ~950 |
+| `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | ~20 |
+| `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | ~300 |
+| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ~15,000–20,000 |
+| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ~3,000 |
+| `mastodon` | [norden.social](https://norden.social), [troet.cafe](https://troet.cafe) | social | DE | tends left | public local timelines (API) | the posts themselves | ~250 (after opt-out filter) |
+| `bluesky` | [Bluesky](https://bsky.app), German-language sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~2,400 (sample: 2 runs × 12 windows × 100) |
 
 The leaning column is a rough orientation for interpreting results (commenters are not the editorial line);
 the mix was chosen to cover the spectrum. Estimates are per day at the 12-hour schedule (see
@@ -173,10 +173,15 @@ src/crawler/
   cli.py            argparse CLI (run, sources, check-robots)
   pipeline.py       orchestration, revisit logic, idempotent writes, run summary
   sources/
-    base.py         Source interface: canonical_url(), discover(), fetch()
-    derstandard.py  GraphQL forum API
-    taz.py          HTML comment list
-    blick.py        Viafoura API
+    base.py           Source (articles: discover(), fetch()) and StreamSource (fetch_since()) interfaces
+    derstandard.py    GraphQL forum API
+    taz.py            HTML comment list
+    blick.py          Viafoura API
+    tagesschau.py     meta.tagesschau.de listing + discussion pages
+    freitag.py        Plone REST @comments
+    tichyseinblick.py WordPress REST comment feed (stream)
+    mastodon.py       public local timelines (stream, social)
+    bluesky.py        public AppView search sample (stream, social)
   discovery.py      Google News sitemap parser, JSON-LD/breadcrumb article metadata
   http.py           PoliteSession: robots check, per-host throttle, retries
   robots.py         robots.txt: urllib.robotparser + own RFC 9309 group/wildcard evaluation
@@ -185,6 +190,11 @@ src/crawler/
   text.py           text cleaning, @mention stripping
   models.py         ArticleRef, Comment, FetchResult (no author fields)
 ```
+
+**Stream sources** (Tichys Einblick, Mastodon, Bluesky) list new items directly. Each run asks for everything
+since the source's `lastCrawlAt` minus an overlap (10 min; 12 h for Tichys Einblick because of pre-moderation),
+drops items from the overlap that are already stored (one Firestore read each, never a write) and groups the rest
+by article (social posts: one pseudo-article per day and instance).
 
 **Adding a source:** subclass `Source` in `src/crawler/sources/<id>.py` (set `id`, `name`, `domain`, `country`,
 `news_sitemap`; implement `canonical_url()` and `fetch()`), register it in `sources/__init__.py`, add a fixture
@@ -289,6 +299,14 @@ summary.
 
 Firestore is accessed **only over the REST API** (`google.oauth2.service_account` +
 `google.auth.transport.requests.AuthorizedSession`), not gRPC.
+
+## Firestore cost
+
+Estimated new comments per day: ~23,000–28,000 in total, ~70 % of them from derStandard (see the table above;
+measured on the runs of 22 Oct 2026). Each new comment costs one write by the crawler and one update by the
+analysis. Revisits that find nothing new cost no writes (see "Revisits"). Firestore pricing (europe-west3,
+roughly $0.18 per 100k writes and $0.06 per 100k reads) puts the crawler at well under $0.10 per day.
+Volume knobs: `--max-articles` (news sources) and `--max-items` (stream sources, Bluesky sample size).
 
 ## Schedule
 
