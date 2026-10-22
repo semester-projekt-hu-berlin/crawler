@@ -68,10 +68,15 @@ class Source(ABC):
                     title=entry.title,
                     published_at=entry.published_at,
                     topics=entry.keywords,
+                    discovered_url=entry.url,
                 )
             )
         refs.sort(key=lambda r: r.published_at, reverse=True)
         return refs
+
+    def rank_new(self, refs: list[ArticleRef], limit: int | None = None) -> list[ArticleRef]:
+        """Order not yet crawled articles by relevance (used when the source is capped)."""
+        return sorted(refs, key=lambda r: r.published_at or datetime.min.replace(tzinfo=UTC), reverse=True)
 
     @abstractmethod
     def fetch(self, ref: ArticleRef) -> FetchResult:

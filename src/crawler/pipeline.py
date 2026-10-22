@@ -53,6 +53,7 @@ class SourceStats:
     articles_skipped_recent: int = 0
     articles_unchanged: int = 0
     articles_partial: int = 0
+    articles_capped: int = 0
     articles_failed: int = 0
     comments_seen: int = 0
     comments_new: int = 0
@@ -67,6 +68,8 @@ class RunOptions:
     max_articles: int = 500
     # Stream sources: max posts/comments per source and run.
     max_items: int = 3000
+    # Per-source caps, see config.SOURCE_LIMITS.
+    source_limits: dict[str, dict[str, int]] = field(default_factory=dict)
     since_hours: float = 48.0
     dry_run: bool = False
     time_budget_s: float | None = None
@@ -102,12 +105,12 @@ class RunSummary:
 
     def to_markdown(self) -> str:
         head = (
-            "| source | discovered | revisit | crawled | new articles | unchanged | comments seen | new comments "
-            "| failed | seconds | error |\n|---|---|---|---|---|---|---|---|---|---|---|\n"
+            "| source | discovered | revisit | crawled | new articles | unchanged | capped | comments seen "
+            "| new comments | failed | seconds | error |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n"
         )
         rows = "".join(
             f"| {s.source} | {s.discovered} | {s.revisit_candidates} | {s.articles_crawled} "
-            f"| {s.articles_new} | {s.articles_unchanged} "
+            f"| {s.articles_new} | {s.articles_unchanged} | {s.articles_capped} "
             f"| {s.comments_seen} | {s.comments_new} | {s.articles_failed + s.comments_failed} "
             f"| {s.duration_s:.0f} | {s.error or ''} |\n"
             for s in self.sources
@@ -226,6 +229,7 @@ class SourceRunner:
         self.deadline = deadline
         self.stats = SourceStats(source.id)
         self.log = logging.getLogger(f"crawler.run.{source.id}")
+        self.limits = opts.source_limits.get(source.id, {})
 
     def _ev(self, event: str, level: int = logging.INFO, **fields: Any) -> None:
         log_event(self.log, event, level, source=self.source.id, **fields)
@@ -264,6 +268,14 @@ class SourceRunner:
         refs = sorted(by_id.values(), key=lambda r: priority(r, now), reverse=True)
         due = [r for r in refs if revisit_due(r, now)]
         self.stats.articles_skipped_recent = len(refs) - len(due)
+        max_new = self.limits.get("max_new_articles_per_run")
+        if max_new:
+            # Capped source: keep revisiting what is already tracked (complete threads), take only
+            # the most relevant new articles.
+            known = [r for r in due if r.known]
+            new = self.source.rank_new([r for r in due if not r.known], max_new)
+            self.stats.articles_capped += max(0, len(new) - max_new)
+            due = known + new[:max_new]
         return due[: self.opts.max_articles]
 
     @staticmethod
@@ -382,6 +394,10 @@ class SourceRunner:
                 if self.deadline and time.monotonic() > self.deadline:
                     self._ev("source.time_budget_exhausted", logging.WARNING, done=i - 1)
                     break
+                max_comments = self.limits.get("max_comments_per_run")
+                if max_comments and not ref.known and self.stats.comments_new >= max_comments:
+                    self.stats.articles_capped += 1
+                    continue
                 crawled_at = datetime.now(UTC)
                 try:
                     result = self.source.fetch(ref)

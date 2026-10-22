@@ -34,6 +34,7 @@ API = "https://livecomments.viafoura.co/v4/livecomments"
 SITE_LOOKUP = "https://tyrion.viafoura.co/v3/sections/sites/www.blick.ch"
 DEFAULT_SITE_UUID = "00000000-0000-4000-8000-acd0dfe4436a"
 PAGE_LIMIT = 100
+PRIORITY_SECTIONS = ("politik", "schweiz", "ausland", "wirtschaft", "sport")
 REVISIT_PAGE_LIMIT = 20
 MAX_PAGES = 50
 _ARTICLE_RE = re.compile(r"^https://www\.blick\.ch/(?!fr/)(?:[a-z0-9-]+/)+[a-z0-9-]+/([a-z0-9]{6,8})$")
@@ -86,6 +87,16 @@ class Blick(Source):
     def canonical_url(self, url: str) -> str | None:
         m = _ARTICLE_RE.match(url)
         return f"https://www.blick.ch/{m.group(1)}" if m else None
+
+    def rank_new(self, refs: list[ArticleRef], limit: int | None = None) -> list[ArticleRef]:
+        """Priority sections (from the discovered URL path) first, then newest."""
+
+        def key(ref: ArticleRef) -> tuple:
+            path = (ref.discovered_url or "").removeprefix("https://www.blick.ch/")
+            section = path.split("/", 1)[0]
+            return (section in PRIORITY_SECTIONS, ref.published_at)
+
+        return sorted(refs, key=key, reverse=True)
 
     def site_uuid(self) -> str:
         if self._site_uuid is None:

@@ -20,7 +20,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -39,6 +39,11 @@ HASH_FORUMINFO = os.environ.get(
 HASH_THREADS = os.environ.get(
     "DERSTANDARD_HASH_THREADS", "d5a2376ac61344341ffe4dcd17f814dba7ea80fbacfb5806c8d1f9c2072a3fa6"
 )
+# Sections preferred when the source is capped (their RSS feeds tell which stories belong to them).
+PRIORITY_SECTIONS = ("inland", "international", "wirtschaft", "sport")
+SECTION_RSS = "https://www.derstandard.at/rss/{}"
+RANK_POOL_FACTOR = 4
+_RSS_STORY_RE = re.compile(r"<link>https://www\.derstandard\.at/story/(\d+)")
 _STORY_RE = re.compile(r"^https://www\.derstandard\.at/story/(\d+)(?:/|$)")
 MAX_PAGES = 200
 PERSISTED_RETRIES = 4
@@ -104,6 +109,50 @@ class DerStandard(Source):
     country = "AT"
     news_sitemap = "https://www.derstandard.at/sitemaps/news.xml"
 
+    def __init__(self, http):  # noqa: ANN001
+        super().__init__(http)
+        # Forum info fetched while ranking, reused by fetch() (saves a request per kept article).
+        self._forum_cache: dict[str, dict[str, Any] | None] = {}
+
+    def priority_story_ids(self) -> set[str]:
+        ids: set[str] = set()
+        for section in PRIORITY_SECTIONS:
+            try:
+                resp = self.http.get(SECTION_RSS.format(section))
+            except Exception:  # noqa: BLE001 - ranking is best effort
+                continue
+            ids.update(_RSS_STORY_RE.findall(resp.text))
+        return ids
+
+    def forum_info(self, url: str) -> dict[str, Any] | None:
+        if url not in self._forum_cache:
+            data = self._query("GetForumInfo", HASH_FORUMINFO, {"contextUri": url})
+            self._forum_cache[url] = data.get("getForumByContextUri")
+        return self._forum_cache[url]
+
+    def rank_new(self, refs: list[ArticleRef], limit: int | None = None) -> list[ArticleRef]:
+        """Priority sections first; among the newest of them the most active forums.
+
+        To keep ranking cheap, posting counts are fetched only for the newest
+        ``RANK_POOL_FACTOR * limit`` priority-section candidates (the forum info is cached
+        and reused by ``fetch``). The rest follows by recency.
+        """
+        if not refs:
+            return refs
+        preferred_ids = self.priority_story_ids()
+        newest_first = sorted(refs, key=lambda r: r.published_at or datetime.min.replace(tzinfo=UTC), reverse=True)
+        preferred = [r for r in newest_first if r.url.rsplit("/", 1)[-1] in preferred_ids]
+        others = [r for r in newest_first if r.url.rsplit("/", 1)[-1] not in preferred_ids]
+        pool = preferred[: RANK_POOL_FACTOR * limit] if limit else preferred
+        for ref in pool:
+            try:
+                forum = self.forum_info(ref.url)
+            except Exception:  # noqa: BLE001 - ranking is best effort
+                forum = None
+            ref.listed_comment_count = int((forum or {}).get("totalPostingCount") or 0)
+        pool.sort(key=lambda r: r.listed_comment_count or 0, reverse=True)
+        return pool + preferred[len(pool) :] + others
+
     def canonical_url(self, url: str) -> str | None:
         m = _STORY_RE.match(url)
         # Live tickers (/jetzt/livebericht/...) have a different forum model and are skipped.
@@ -142,7 +191,7 @@ class DerStandard(Source):
     def fetch(self, ref: ArticleRef) -> FetchResult:
         if not ref.known:
             self._enrich(ref)
-        forum = self._query("GetForumInfo", HASH_FORUMINFO, {"contextUri": ref.url}).get("getForumByContextUri")
+        forum = self.forum_info(ref.url)
         if not forum or not forum.get("id"):
             return FetchResult(ref, [], 0)
         total = int(forum.get("totalPostingCount") or 0)

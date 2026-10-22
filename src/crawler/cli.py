@@ -15,7 +15,7 @@ import os
 import sys
 
 from crawler import __version__
-from crawler.config import USER_AGENT
+from crawler.config import USER_AGENT, source_limits
 from crawler.logging_setup import log_event, setup_logging
 from crawler.sources import SOURCES
 
@@ -62,6 +62,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="stream sources (Tichys Einblick, Mastodon, Bluesky): max items per source and run (default: 3000)",
     )
     run.add_argument(
+        "--source-limit",
+        action="append",
+        default=[],
+        metavar="SRC.KEY=N",
+        help="override a per-source cap, e.g. derstandard.max_comments_per_run=3000; 0 removes it, "
+        "derstandard=off removes all caps of a source (also env CRAWLER_SOURCE_LIMITS as JSON)",
+    )
+    run.add_argument(
         "--time-budget-minutes", type=float, default=None, help="stop starting new articles after this many minutes"
     )
     run.add_argument("--dry-run", action="store_true", help="do not touch Firestore")
@@ -86,6 +94,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         opts = RunOptions(
             max_articles=args.max_articles,
             max_items=args.max_items,
+            source_limits=source_limits(args.source_limit),
             since_hours=args.since_hours,
             dry_run=args.dry_run,
             time_budget_s=args.time_budget_minutes * 60 if args.time_budget_minutes else None,
@@ -94,6 +103,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         log_event(
             log,
             "run.start",
+            source_limits=json.dumps(opts.source_limits),
             sources=",".join(args.sources),
             max_articles=args.max_articles,
             max_items=args.max_items,

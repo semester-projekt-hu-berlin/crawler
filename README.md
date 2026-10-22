@@ -17,14 +17,14 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 | `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | ~950 |
 | `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | ~20 |
 | `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | ~300 |
-| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ~15,000–20,000 |
-| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ~3,000 |
+| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ~4,500 (capped; uncapped ~15,000–20,000) |
+| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ~1,400 (capped; uncapped ~3,000) |
 | `mastodon` | [norden.social](https://norden.social), [troet.cafe](https://troet.cafe) | social | DE | tends left | public local timelines (API) | the posts themselves | ~250 (after opt-out filter) |
 | `bluesky` | [Bluesky](https://bsky.app), German-language sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~2,400 (sample: 2 runs × 12 windows × 100) |
 
 The leaning column is a rough orientation for interpreting results (commenters are not the editorial line);
 the mix was chosen to cover the spectrum. Estimates are per day at the 12-hour schedule (see
-"Firestore cost" below).
+"Volume caps and Firestore cost" below).
 
 ### Why each source is allowed and how its comments are fetched
 
@@ -301,13 +301,51 @@ summary.
 Firestore is accessed **only over the REST API** (`google.oauth2.service_account` +
 `google.auth.transport.requests.AuthorizedSession`), not gRPC.
 
-## Firestore cost
+## Volume caps and Firestore cost
 
-Estimated new comments per day: ~23,000–28,000 in total, ~70 % of them from derStandard (see the table above;
-measured on the runs of 22 Oct 2026). Each new comment costs one write by the crawler and one update by the
-analysis. Revisits that find nothing new cost no writes (see "Revisits"). Firestore pricing (europe-west3,
-roughly $0.18 per 100k writes and $0.06 per 100k reads) puts the crawler at well under $0.10 per day.
-Volume knobs: `--max-articles` (news sources) and `--max-items` (stream sources, Bluesky sample size).
+Uncapped, the sources produce ~23,000–28,000 new comments per day, ~70 % from derStandard (Austria). That is more
+than the analysis can process (2 runs × 150 min per day on 2-vCPU runners), costs writes for data the project does
+not focus on and drowns the German sources. derStandard and Blick are therefore capped per run in
+`config.SOURCE_LIMITS`:
+
+| source | `max_new_articles_per_run` | `max_comments_per_run` | selection of new articles |
+|---|---|---|---|
+| `derstandard` | 10 | 2,500 | Inland, International, Wirtschaft and Sport first (section RSS feeds), among those the most active forums (posting count from `GetForumInfo`, fetched for the newest 40 candidates and reused by the crawl), then by recency |
+| `blick` | 15 | 800 | Politik, Schweiz, Ausland, Wirtschaft, Sport first (URL path), then by recency |
+
+- The caps only limit **new** articles. Articles already being tracked are revisited without limit, and every
+  kept article is crawled completely (all threads, newest first), so the data stays coherent instead of
+  containing truncated threads.
+- `max_comments_per_run` is a budget: once this many new comments were stored in a run, no further new article is
+  started (the current one is always finished).
+- Articles not taken stay candidates while they are in the sitemap window and may be taken by a later run if they
+  rank high then (their first crawl is then complete as well).
+- Overrides: `--source-limit derstandard.max_comments_per_run=3000` (repeatable; `0` removes one cap,
+  `derstandard=off` all caps of a source) or the env var `CRAWLER_SOURCE_LIMITS` with JSON of the same shape as
+  `SOURCE_LIMITS`.
+
+Estimated new comments per day with the caps (2 runs a day):
+
+| source | per day |
+|---|---|
+| derstandard | ~4,000–5,000 (20 articles/day, the most active ones, ~200–250 comments each over their lifetime) |
+| blick | ~1,200–1,500 (30 articles/day, ~40–50 comments each) |
+| bluesky | ~2,400 (sample) |
+| tichyseinblick | ~950 |
+| tagesschau | ~750 |
+| taz | ~300 |
+| mastodon | ~250 |
+| freitag | ~20 |
+| **total** | **~10,000–11,500**, about 60 % from German sources |
+
+A dry run (`python -m crawler run --sources derstandard,blick --since-hours 24 --dry-run`) on 22 Oct 2026 took
+10 of 168 derStandard candidates (1,953 comments, the first crawl of busy forums) and 15 of 131 Blick
+candidates (310 comments). Right after enabling the caps, articles that were tracked before keep being revisited
+for up to 3 days, so the volume falls to the target over that period.
+
+Each new comment costs one write by the crawler and one update by the analysis; revisits that find nothing new
+cost no writes (see "Revisits"). At roughly $0.18 per 100k writes and $0.06 per 100k reads (europe-west3) the
+crawler costs a few cents per day.
 
 ## Schedule
 

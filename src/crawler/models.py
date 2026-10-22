@@ -32,6 +32,8 @@ class ArticleRef:
     comment_thread_id: str | None = None
     # Comment count shown on a listing page during discovery (saves the article fetch if unchanged).
     listed_comment_count: int | None = None
+    # URL as discovered (sitemap), before canonicalisation; carries the section path on some sites.
+    discovered_url: str | None = None
 
     @property
     def id(self) -> str:

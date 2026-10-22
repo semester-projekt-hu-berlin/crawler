@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import timedelta
 
@@ -34,3 +35,42 @@ COMMENT_OVERLAP = timedelta(minutes=10)
 
 FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "meinungspuls-hu")
 FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)")
+
+
+# Per-source caps (per run; the crawl runs twice a day). Why: Firestore cost, the analysis
+# capacity (2 runs x 150 min/day on 2 vCPUs) and the German focus of the project. Uncapped
+# sources are simply not listed.
+#   max_new_articles_per_run: new articles taken per run, most relevant first (revisits of
+#                             articles already being tracked are not limited, so threads stay complete)
+#   max_comments_per_run:     once this many new comments were stored in a run, no further
+#                             *new* articles are started (the current article is always finished)
+SOURCE_LIMITS: dict[str, dict[str, int]] = {
+    "derstandard": {"max_new_articles_per_run": 10, "max_comments_per_run": 2500},
+    "blick": {"max_new_articles_per_run": 15, "max_comments_per_run": 800},
+}
+LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run")
+
+
+def source_limits(overrides: list[str] | None = None) -> dict[str, dict[str, int]]:
+    """``SOURCE_LIMITS`` merged with ``CRAWLER_SOURCE_LIMITS`` (JSON, same shape) and CLI overrides.
+
+    CLI overrides look like ``derstandard.max_comments_per_run=3000``; a value of ``0`` removes
+    that cap, ``derstandard=off`` removes all caps of a source.
+    """
+    limits = {k: dict(v) for k, v in SOURCE_LIMITS.items()}
+    env = os.environ.get("CRAWLER_SOURCE_LIMITS", "").strip()
+    if env:
+        for sid, values in json.loads(env).items():
+            limits.setdefault(sid, {}).update({k: int(v) for k, v in values.items()})
+    for item in overrides or []:
+        key, _, value = item.partition("=")
+        sid, _, field = key.strip().partition(".")
+        if not field:
+            if value.strip().lower() in ("off", "none", "0"):
+                limits.pop(sid, None)
+                continue
+            raise ValueError(f"invalid source limit {item!r}")
+        if field not in LIMIT_KEYS:
+            raise ValueError(f"unknown limit {field!r}; known: {', '.join(LIMIT_KEYS)}")
+        limits.setdefault(sid, {})[field] = int(value)
+    return {sid: {k: v for k, v in vals.items() if v > 0} for sid, vals in limits.items() if any(vals.values())}
