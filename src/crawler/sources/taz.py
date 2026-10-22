@@ -72,4 +72,7 @@ class Taz(Source):
             ref.published_at = meta.published_at or ref.published_at
             ref.topics = (meta.topics or []) + [t for t in parse_tags(soup) if t not in (meta.topics or [])]
         comments = parse_comments(soup, self.id)
-        return FetchResult(ref, comments, len(comments))
+        # All comments are in the page anyway (no cheaper count endpoint, and taz ignores
+        # If-Modified-Since); the pipeline filters out already stored ones before writing.
+        unchanged = ref.known and ref.known_comment_count == len(comments)
+        return FetchResult(ref, [] if unchanged else comments, len(comments), unchanged=unchanged)

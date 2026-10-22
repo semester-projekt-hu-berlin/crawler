@@ -76,3 +76,28 @@ class Source(ABC):
         ``ref.known`` tells whether the article already exists in Firestore; adapters
         may then skip fetching article metadata again.
         """
+
+
+class IncrementalPager:
+    """Decides when to stop paging through a newest-first comment listing on a revisit.
+
+    Replies to old threads can show up on any page, so "this page holds only old
+    comments" alone is not enough. With a known comment count we stop as soon as we
+    have seen as many genuinely new comments as the count grew; without a count we
+    stop at the first page that holds only comments older than the cutoff.
+    """
+
+    def __init__(self, ref: ArticleRef, since: datetime | None, expected_new: int | None) -> None:
+        self.ref = ref
+        self.since = since
+        self.expected_new = expected_new
+        self.found_new = 0
+
+    def add_page(self, published: list[datetime]) -> bool:
+        """Register the timestamps of one page; return True if paging should stop."""
+        if self.since is None:  # first crawl: fetch everything
+            return False
+        self.found_new += sum(1 for t in published if self.ref.is_new_comment(t))
+        if self.expected_new is not None:
+            return self.found_new >= self.expected_new
+        return not any(t >= self.since for t in published)

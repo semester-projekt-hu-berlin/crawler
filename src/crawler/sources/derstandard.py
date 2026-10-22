@@ -20,14 +20,16 @@ import json
 import os
 import re
 import time
+from datetime import datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
 
+from crawler.config import COMMENT_OVERLAP
 from crawler.discovery import parse_page_meta
 from crawler.ids import parse_datetime
 from crawler.models import ArticleRef, Comment, FetchResult
-from crawler.sources.base import Source
+from crawler.sources.base import IncrementalPager, Source
 from crawler.text import clean_text
 
 GRAPHQL_URL = "https://capi.ds.at/forum-serve-graphql/v1/"
@@ -143,9 +145,14 @@ class DerStandard(Source):
         forum = self._query("GetForumInfo", HASH_FORUMINFO, {"contextUri": ref.url}).get("getForumByContextUri")
         if not forum or not forum.get("id"):
             return FetchResult(ref, [], 0)
-        total = forum.get("totalPostingCount") or 0
+        total = int(forum.get("totalPostingCount") or 0)
+        if ref.known and ref.known_comment_count == total:
+            return FetchResult(ref, [], total, complete=False, unchanged=True)
         nodes: list[dict[str, Any]] = list(forum.get("stickyPostings") or [])
+        complete = True
         if total:
+            # Root postings come newest first ("ByTime", descending); replies are nested in their root.
+            pager = IncrementalPager(ref, ref.since(COMMENT_OVERLAP), ref.expected_new(total))
             cursor = ""
             for _ in range(MAX_PAGES):
                 data = self._query(
@@ -154,9 +161,26 @@ class DerStandard(Source):
                     {"id": forum["id"], "sortOrder": "ByTime", "first": "Max", "nextCursor": cursor},
                 )
                 page = data.get("getForumRootPostingsV2") or {}
-                nodes.extend(edge["node"] for edge in page.get("edges") or [] if edge.get("node"))
+                page_nodes = [edge["node"] for edge in page.get("edges") or [] if edge.get("node")]
+                nodes.extend(page_nodes)
                 info = page.get("pageInfo") or {}
                 cursor = info.get("nextCursor") or ""
                 if not info.get("hasNextPage") or not cursor:
                     break
-        return FetchResult(ref, parse_postings(nodes, self.id), total)
+                if pager.add_page([t for n in page_nodes for t in subtree_times(n)]):
+                    complete = False
+                    break
+        return FetchResult(ref, parse_postings(nodes, self.id), total, complete=complete)
+
+
+def subtree_times(node: dict[str, Any]) -> list[datetime]:
+    """Creation times of a posting and all its replies (deleted ones included)."""
+    out: list[datetime] = []
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        t = parse_datetime((n.get("history") or {}).get("created"))
+        if t:
+            out.append(t)
+        stack.extend(n.get("replies") or [])
+    return out

@@ -10,7 +10,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import IO, Any
 
-from crawler.config import COMMENT_OVERLAP_MINUTES, MIN_REVISIT_MINUTES, REVISIT_DAYS
+from crawler.config import (
+    COMMENT_OVERLAP,
+    DAILY_SLOT_END_HOUR_UTC,
+    FRESH_HOURS,
+    MIN_REVISIT_MINUTES,
+    REVISIT_DAYS,
+)
 from crawler.firestore import Firestore, Write
 from crawler.http import PoliteSession, RobotsDisallowed
 from crawler.logging_setup import log_event
@@ -18,6 +24,19 @@ from crawler.models import ArticleRef, Comment, FetchResult
 from crawler.sources import SOURCES, Source
 
 log = logging.getLogger(__name__)
+
+# Article fields the revisit logic needs (the query reads only these).
+ARTICLE_STATE_FIELDS = [
+    "url",
+    "title",
+    "publishedAt",
+    "topics",
+    "lastCommentCrawlAt",
+    "commentCount",
+    "lastCommentAt",
+    "knownCommentCount",
+    "commentThreadId",
+]
 
 
 @dataclass
@@ -28,6 +47,8 @@ class SourceStats:
     articles_crawled: int = 0
     articles_new: int = 0
     articles_skipped_recent: int = 0
+    articles_unchanged: int = 0
+    articles_partial: int = 0
     articles_failed: int = 0
     comments_seen: int = 0
     comments_new: int = 0
@@ -53,10 +74,19 @@ class RunSummary:
     dry_run: bool = False
     sources: list[SourceStats] = field(default_factory=list)
     http_requests: int = 0
+    http_bytes: int = 0
     firestore_writes: int = 0
+    firestore_reads: int = 0
 
     def totals(self) -> dict[str, int]:
-        keys = ("articles_crawled", "articles_new", "comments_new", "comments_existing", "articles_failed")
+        keys = (
+            "articles_crawled",
+            "articles_new",
+            "articles_unchanged",
+            "comments_new",
+            "comments_existing",
+            "articles_failed",
+        )
         return {k: sum(getattr(s, k) for s in self.sources) for k in keys}
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,11 +96,12 @@ class RunSummary:
 
     def to_markdown(self) -> str:
         head = (
-            "| source | discovered | revisit | crawled | new articles | comments seen | new comments "
-            "| failed | seconds | error |\n|---|---|---|---|---|---|---|---|---|---|\n"
+            "| source | discovered | revisit | crawled | new articles | unchanged | comments seen | new comments "
+            "| failed | seconds | error |\n|---|---|---|---|---|---|---|---|---|---|---|\n"
         )
         rows = "".join(
-            f"| {s.source} | {s.discovered} | {s.revisit_candidates} | {s.articles_crawled} | {s.articles_new} "
+            f"| {s.source} | {s.discovered} | {s.revisit_candidates} | {s.articles_crawled} "
+            f"| {s.articles_new} | {s.articles_unchanged} "
             f"| {s.comments_seen} | {s.comments_new} | {s.articles_failed + s.comments_failed} "
             f"| {s.duration_s:.0f} | {s.error or ''} |\n"
             for s in self.sources
@@ -78,33 +109,60 @@ class RunSummary:
         mode = " (dry run)" if self.dry_run else ""
         return (
             f"### Crawl run {self.started_at}{mode}\n\n{head}{rows}\n"
-            f"HTTP requests: {self.http_requests}, Firestore writes: {self.firestore_writes}\n"
+            f"HTTP requests: {self.http_requests} ({self.http_bytes / 1e6:.1f} MB on the wire), "
+            f"Firestore writes: {self.firestore_writes}, Firestore document reads: {self.firestore_reads}\n"
         )
 
 
 def revisit_due(ref: ArticleRef, now: datetime) -> bool:
-    """Back off revisits as articles age: most comments arrive in the first hours."""
+    """Back off revisits as articles age: most comments arrive in the first hours.
+
+    * never crawled: always
+    * older than REVISIT_DAYS: never
+    * up to FRESH_HOURS old: if the last crawl is at least MIN_REVISIT_MINUTES ago
+    * older: only in the daily slot (runs starting before DAILY_SLOT_END_HOUR_UTC) and at most
+      once per day. The slot also bounds articles whose last crawl found no change (their
+      ``lastCommentCrawlAt`` is not rewritten, to save writes) to one cheap count check a day.
+    """
     if not ref.known or ref.last_comment_crawl_at is None:
         return True
     age = now - (ref.published_at or now)
     if age > timedelta(days=REVISIT_DAYS):
         return False
-    if age < timedelta(hours=12):
-        min_gap = timedelta(minutes=MIN_REVISIT_MINUTES)
-    elif age < timedelta(hours=36):
-        min_gap = timedelta(hours=3)
-    else:
-        min_gap = timedelta(hours=6)
-    return now - ref.last_comment_crawl_at >= min_gap - timedelta(minutes=5)
+    gap = now - ref.last_comment_crawl_at
+    if age <= timedelta(hours=FRESH_HOURS):
+        return gap >= timedelta(minutes=MIN_REVISIT_MINUTES - 5)
+    return now.hour < DAILY_SLOT_END_HOUR_UTC and gap >= timedelta(hours=12)
+
+
+def priority(ref: ArticleRef, now: datetime) -> datetime:
+    """Most recent activity first: the newer of publication and newest stored comment."""
+    times = [t for t in (ref.published_at, ref.last_comment_at) if t is not None]
+    return max(times) if times else now
 
 
 def comments_to_store(result: FetchResult) -> list[Comment]:
-    """On revisits only comments newer than the previous crawl (minus an overlap) are written."""
+    """Comments that are not stored yet and must be written.
+
+    First crawl: all. Revisit: those published after the previous crawl minus a small
+    overlap. If the full list was fetched but fewer new comments turned up than the
+    source's count grew (comments released late from moderation keep their original
+    timestamp), all fetched comments are sent; the ``exists: false`` precondition
+    then skips the stored ones.
+    """
     ref = result.article
-    if not ref.known or ref.last_comment_crawl_at is None:
+    since = ref.since(COMMENT_OVERLAP)
+    if result.unchanged:
+        return []
+    if since is None:
         return result.comments
-    cutoff = ref.last_comment_crawl_at - timedelta(minutes=COMMENT_OVERLAP_MINUTES)
-    return [c for c in result.comments if c.published_at >= cutoff]
+    fresh = [c for c in result.comments if c.published_at >= since]
+    expected = ref.expected_new(result.reported_total)
+    if result.complete and expected is not None:
+        found = sum(1 for c in fresh if ref.is_new_comment(c.published_at))
+        if found < expected:
+            return result.comments
+    return fresh
 
 
 def comment_doc(c: Comment, article_id: str, crawled_at: datetime) -> dict[str, Any]:
@@ -124,8 +182,10 @@ def comment_doc(c: Comment, article_id: str, crawled_at: datetime) -> dict[str, 
     }
 
 
-def article_doc(ref: ArticleRef, crawled_at: datetime, comment_count: int) -> dict[str, Any]:
-    return {
+def article_doc(
+    ref: ArticleRef, crawled_at: datetime, comment_count: int, result: FetchResult, last_comment_at: datetime | None
+) -> dict[str, Any]:
+    doc = {
         "url": ref.url,
         "sourceId": ref.source_id,
         "title": ref.title,
@@ -134,7 +194,12 @@ def article_doc(ref: ArticleRef, crawled_at: datetime, comment_count: int) -> di
         "lastCommentCrawlAt": crawled_at,
         "commentCount": comment_count,
         "topics": ref.topics[:20],
+        "lastCommentAt": last_comment_at,
+        "knownCommentCount": result.reported_total,
     }
+    if result.thread_id:
+        doc["commentThreadId"] = result.thread_id
+    return doc
 
 
 class SourceRunner:
@@ -157,10 +222,6 @@ class SourceRunner:
         self.stats.discovered = len(discovered)
         by_id: dict[str, ArticleRef] = {r.id: r for r in discovered}
         if self.store is not None:
-            known = self.store.batch_get([f"articles/{aid}" for aid in by_id])
-            for path, fields in known.items():
-                if fields:
-                    self._mark_known(by_id[path.split("/", 1)[1]], fields)
             since = now - timedelta(days=REVISIT_DAYS)
             try:
                 rows = self.store.run_query(
@@ -168,18 +229,23 @@ class SourceRunner:
                     [("sourceId", "EQUAL", src.id), ("publishedAt", "GREATER_THAN_OR_EQUAL", since)],
                     order_by=[("publishedAt", "DESCENDING")],
                     limit=2000,
+                    select=ARTICLE_STATE_FIELDS,
                 )
             except RuntimeError as exc:  # e.g. missing composite index
                 self._ev("revisit.query_failed", logging.WARNING, error=str(exc)[:300])
                 rows = []
             self.stats.revisit_candidates = len(rows)
             for doc_id, fields in rows:
-                if doc_id not in by_id:
-                    ref = ArticleRef(url=fields.get("url", ""), source_id=src.id)
-                    self._mark_known(ref, fields)
-                    if ref.url and ref.id == doc_id:
-                        by_id[doc_id] = ref
-        refs = sorted(by_id.values(), key=lambda r: r.published_at or now, reverse=True)
+                ref = by_id.get(doc_id) or ArticleRef(url=fields.get("url", ""), source_id=src.id)
+                self._mark_known(ref, fields)
+                if ref.url and ref.id == doc_id:
+                    by_id[doc_id] = ref
+            # Discovered articles the query did not return (normally the genuinely new ones).
+            unseen = [aid for aid, r in by_id.items() if not r.known]
+            for path, fields in self.store.batch_get([f"articles/{aid}" for aid in unseen]).items():
+                if fields:
+                    self._mark_known(by_id[path.split("/", 1)[1]], fields)
+        refs = sorted(by_id.values(), key=lambda r: priority(r, now), reverse=True)
         due = [r for r in refs if revisit_due(r, now)]
         self.stats.articles_skipped_recent = len(refs) - len(due)
         return due[: self.opts.max_articles]
@@ -192,35 +258,41 @@ class SourceRunner:
         ref.topics = fields.get("topics") or ref.topics
         ref.last_comment_crawl_at = fields.get("lastCommentCrawlAt")
         ref.comment_count = int(fields.get("commentCount") or 0)
+        ref.last_comment_at = fields.get("lastCommentAt")
+        known_count = fields.get("knownCommentCount")
+        ref.known_comment_count = int(known_count) if known_count is not None else None
+        ref.comment_thread_id = fields.get("commentThreadId")
 
     # -- storing
 
     def store_result(self, result: FetchResult, crawled_at: datetime) -> Write | None:
-        """Write new comments; return the article write (or None in dry-run)."""
+        """Write new comments; return the article write if anything changed (None in dry-run)."""
         ref = result.article
-        new_candidates = comments_to_store(result)
+        to_write = comments_to_store(result)
+        if result.unchanged:
+            self.stats.articles_unchanged += 1
+        if not result.complete:
+            self.stats.articles_partial += 1
         if self.store is None:
             if self.opts.out is not None:
-                for c in result.comments:
+                for c in to_write:
                     row = comment_doc(c, ref.id, crawled_at) | {"id": c.id, "articleUrl": ref.url}
                     self.opts.out.write(json.dumps(row, default=str, ensure_ascii=False) + "\n")
-            self.stats.comments_new += len(new_candidates)
+            self.stats.comments_new += len(to_write)
             self.stats.articles_new += 0 if ref.known else 1
             return None
         writes = [
-            self.store.create_write(f"comments/{c.id}", comment_doc(c, ref.id, crawled_at), tag=c.id)
-            for c in new_candidates
+            self.store.create_write(f"comments/{c.id}", comment_doc(c, ref.id, crawled_at), tag=c) for c in to_write
         ]
         res = self.store.batch_write(writes) if writes else None
-        inserted = len(res.ok) if res else 0
+        inserted = [w.tag for w in res.ok] if res else []
         existing = len(res.already_exists) if res else 0
         if res:
-            self.stats.comments_new += inserted
-            self.stats.comments_existing += len(res.already_exists)
+            self.stats.comments_new += len(inserted)
+            self.stats.comments_existing += existing
             self.stats.comments_failed += len(res.failed)
             if res.failed:
-                log_event(
-                    self.log,
+                self._ev(
                     "comments.write_failed",
                     logging.ERROR,
                     article=ref.id,
@@ -229,16 +301,31 @@ class SourceRunner:
                 )
                 # Do not advance lastCommentCrawlAt, so the failed comments are retried next run.
                 return None
-        if ref.known:
-            return self.store.update_write(
+        newest = max([c.published_at for c in inserted], default=None)
+        last_comment_at = max([t for t in (ref.last_comment_at, newest) if t is not None], default=None)
+        if not ref.known:
+            # (existing > 0 only if an earlier run stored comments but died before the article write.)
+            return self.store.create_write(
                 f"articles/{ref.id}",
-                {"lastCommentCrawlAt": crawled_at},
-                increments={"commentCount": inserted} if inserted else None,
-                tag=("article", False),
+                article_doc(ref, crawled_at, len(inserted) + existing, result, last_comment_at),
+                tag=("article", True),
             )
-        # (existing > 0 only if an earlier run stored comments but died before the article write.)
-        return self.store.create_write(
-            f"articles/{ref.id}", article_doc(ref, crawled_at, inserted + existing), tag=("article", True)
+        # Known article: write only if something changed.
+        update: dict[str, Any] = {}
+        if result.reported_total is not None and result.reported_total != ref.known_comment_count:
+            update["knownCommentCount"] = result.reported_total
+        if inserted:
+            update["lastCommentAt"] = last_comment_at
+        if result.thread_id and result.thread_id != ref.comment_thread_id:
+            update["commentThreadId"] = result.thread_id
+        if not update:
+            return None
+        update["lastCommentCrawlAt"] = crawled_at
+        return self.store.update_write(
+            f"articles/{ref.id}",
+            update,
+            increments={"commentCount": len(inserted)} if inserted else None,
+            tag=("article", False),
         )
 
     def flush_articles(self, writes: list[Write]) -> None:
@@ -329,12 +416,15 @@ def sync_sources(store: Firestore, sources: list[Source]) -> list[Source]:
             )
             enabled.append(s)
         else:
-            writes.append(store.update_write(f"sources/{s.id}", s.source_doc()))
+            changed = {k: v for k, v in s.source_doc().items() if doc.get(k) != v}
+            if changed:
+                writes.append(store.update_write(f"sources/{s.id}", changed))
             if doc.get("enabled", True):
                 enabled.append(s)
             else:
                 log_event(log, "source.disabled", source=s.id)
-    store.batch_write(writes)
+    if writes:
+        store.batch_write(writes)
     return enabled
 
 
@@ -375,6 +465,8 @@ def run(source_ids: list[str], opts: RunOptions, store: Firestore | None) -> Run
     if store is not None:
         finalize(store, summary.sources, len(SOURCES))
         summary.firestore_writes = store.write_count
+        summary.firestore_reads = store.read_count
     summary.http_requests = http.request_count
+    summary.http_bytes = http.bytes_received
     summary.finished_at = datetime.now(UTC).isoformat(timespec="seconds")
     return summary

@@ -129,14 +129,49 @@ based test and document the robots.txt situation above.
   incremented by the number of actually inserted documents.
 - `articles.lastCommentCrawlAt` is only advanced after all comment writes for the article succeeded.
 
-### Revisits
+### Revisits (incremental)
 
 Every run takes the articles of the last `--since-hours` from the news sitemap plus all stored articles of the
-last 3 days (`articles` where `sourceId == X and publishedAt >= now-3d`, uses the existing composite index).
-An article is crawled again if its last crawl is at least 1 h (article < 12 h old), 3 h (< 36 h) or 6 h (older)
-ago. On a revisit only comments published after `lastCommentCrawlAt - 60 min` are written (the overlap catches
-comments that appear late because of moderation). Consequence: `upvotes` is a snapshot taken when the comment
-was first stored.
+last 3 days (`articles` where `sourceId == X and publishedAt >= now-3d`, existing composite index; only the
+fields the revisit logic needs are selected). Candidates are ordered by recent activity (the newer of
+`publishedAt` and `lastCommentAt`) and capped at `--max-articles`.
+
+**When** an article is revisited:
+
+| article age | revisit |
+|---|---|
+| never crawled | always |
+| up to 24 h | every run (at most once per hour for manual runs) |
+| 24 h to 3 days | once a day, in the morning run (runs starting before 12:00 UTC) |
+| older than 3 days | never |
+
+**What** a revisit costs. The crawler keeps three optional fields per article (documented in SCHEMA.md):
+`knownCommentCount` (comment total the source reported at the last change), `lastCommentAt` and
+`commentThreadId`.
+
+1. *Count check.* derStandard (`GetForumInfo.totalPostingCount`) and Blick (Viafoura
+   `total_visible_content`) expose the total in a small request. If it equals `knownCommentCount`, the revisit
+   ends there: no thread pages, no Firestore writes. taz has no count endpoint, so the article page is fetched
+   (all comments are in it) and compared.
+2. *Newest first, stop early.* Both APIs return threads newest first (derStandard `sortOrder: ByTime`, Viafoura
+   `sorted_by=newest`). Replies to old threads can appear on any page, so paging stops as soon as as many
+   comments newer than `lastCommentCrawlAt` were seen as the count grew (without a stored count: at the first
+   page that holds only older comments). Blick revisits also use smaller pages and skip the article page
+   (thread id stored).
+3. *Only new comments are sent.* Comments published before `lastCommentCrawlAt - 10 min` are never sent to
+   Firestore. Exception: if the complete list was fetched and fewer new comments turned up than the count grew
+   (comments released late from moderation keep their original timestamp), all fetched comments are sent once;
+   the `exists: false` precondition skips stored ones.
+4. *Article doc only on change.* The article is updated only if comments were inserted, the source count
+   changed or the thread id was learned. Unchanged articles cost zero writes (their `lastCommentCrawlAt` stays
+   as is; the daily slot bounds them to one cheap count check per day).
+
+`upvotes` is a snapshot taken when the comment was first stored.
+
+**HTTP.** Responses are requested gzip-compressed. Conditional requests were evaluated: the comment APIs send
+no validators, taz ignores `If-Modified-Since` (its `Last-Modified` reflects the article, not the comments), the
+sitemaps change within minutes (always `200` between 12-hourly runs) and Blick article pages, which do honour
+ETags, are no longer fetched on revisits. So conditional requests would save nothing and are not used.
 
 ## Running locally
 
@@ -195,5 +230,7 @@ format) and pytest on Python 3.11 and 3.13 for every push and pull request.
   filter `forum-serve-graphql`) via the env vars or in `sources/derstandard.py`.
 - Comments deleted by the site after we stored them are not removed from Firestore.
 - Upvotes are not updated after the first insert (saves writes).
+- A deleted and a new comment between two crawls leave the count unchanged; that new comment is picked up only
+  once the count changes again.
 - derStandard produces by far the most comments (easily tens of thousands of writes per day); keep an eye on
   Firestore quotas.

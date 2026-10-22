@@ -155,6 +155,8 @@ class Firestore:
         self.base = f"https://firestore.googleapis.com/v1/{self.db}/documents"
         self._lock = threading.Lock()
         self.write_count = 0
+        # Billed document reads (a query returning nothing still costs one read).
+        self.read_count = 0
 
     def doc_name(self, path: str) -> str:
         return f"{self.root}/{path}"
@@ -192,6 +194,8 @@ class Firestore:
             result = self._request(
                 "POST", f"{self.base}:batchGet", json={"documents": [self.doc_name(p) for p in chunk]}
             )
+            with self._lock:
+                self.read_count += len(chunk)
             for item in result:
                 if "found" in item:
                     doc = item["found"]
@@ -223,6 +227,8 @@ class Firestore:
             query["select"] = {"fields": [{"fieldPath": f} for f in select]}
         result = self._request("POST", f"{self.base}:runQuery", json={"structuredQuery": query})
         rows = []
+        with self._lock:
+            self.read_count += max(1, sum(1 for item in result if item.get("document")))
         for item in result:
             doc = item.get("document")
             if doc:

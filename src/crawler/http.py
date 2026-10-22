@@ -50,6 +50,8 @@ class PoliteSession:
             {
                 "User-Agent": user_agent,
                 "Accept-Language": "de-DE,de;q=0.9",
+                # Compressed transfer (requests decodes gzip/deflate transparently).
+                "Accept-Encoding": "gzip, deflate",
             }
         )
         self.min_delay = min_delay
@@ -57,6 +59,8 @@ class PoliteSession:
         self._throttles: dict[str, _HostThrottle] = {}
         self._lock = threading.Lock()
         self.request_count = 0
+        # Bytes received on the wire (compressed), for the run summary.
+        self.bytes_received = 0
 
     def _throttle(self, host: str) -> _HostThrottle:
         with self._lock:
@@ -104,7 +108,14 @@ class PoliteSession:
                 log_event(log, "http.error", logging.WARNING, url=full_url, attempt=attempt, error=str(exc))
                 time.sleep(2**attempt * 2)
                 continue
-            log_event(log, "http.get", logging.DEBUG, url=full_url, status=resp.status_code)
+            _ = resp.content  # read the body so the raw (compressed) byte count is final
+            try:
+                wire = int(resp.raw.tell())
+            except (AttributeError, TypeError, ValueError):
+                wire = len(resp.content)
+            with self._lock:
+                self.bytes_received += wire
+            log_event(log, "http.get", logging.DEBUG, url=full_url, status=resp.status_code, bytes=wire)
             if resp.status_code == 429 or resp.status_code >= 500:
                 retry_after = resp.headers.get("Retry-After", "")
                 backoff = float(retry_after) if retry_after.isdigit() else 2**attempt * 5

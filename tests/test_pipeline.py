@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from crawler.firestore import ALREADY_EXISTS, Firestore, WriteResult
 from crawler.models import ArticleRef, Comment, FetchResult
-from crawler.pipeline import RunOptions, SourceRunner, comment_doc, comments_to_store, revisit_due
+from crawler.pipeline import RunOptions, SourceRunner, comment_doc
 from crawler.sources.base import Source
 
 NOW = datetime.now(UTC).replace(microsecond=0)
@@ -15,6 +15,7 @@ class FakeStore(Firestore):
         self.root = "projects/p/databases/(default)/documents"
         self.docs: dict[str, dict] = {}
         self.write_count = 0
+        self.read_count = 0
 
     def batch_get(self, paths):
         return {p: self.docs.get(p) for p in paths}
@@ -92,25 +93,6 @@ def test_comment_doc_matches_schema_and_has_no_author():
     }  # fmt: skip
     assert doc["analyzed"] is False
     assert doc["parentId"] is not None and len(doc["parentId"]) == 20
-
-
-def test_revisit_due_backs_off_with_age():
-    fresh = ArticleRef("u", "s", published_at=NOW - timedelta(hours=2), known=True,
-                       last_comment_crawl_at=NOW - timedelta(minutes=90))  # fmt: skip
-    assert revisit_due(fresh, NOW)
-    day_old = ArticleRef("u", "s", published_at=NOW - timedelta(hours=20), known=True,
-                         last_comment_crawl_at=NOW - timedelta(minutes=90))  # fmt: skip
-    assert not revisit_due(day_old, NOW)
-    too_old = ArticleRef("u", "s", published_at=NOW - timedelta(days=4), known=True,
-                         last_comment_crawl_at=NOW - timedelta(days=1))  # fmt: skip
-    assert not revisit_due(too_old, NOW)
-    assert revisit_due(ArticleRef("u", "s"), NOW)
-
-
-def test_comments_to_store_only_new_on_revisit():
-    ref = ArticleRef("u", "s", known=True, last_comment_crawl_at=NOW - timedelta(minutes=10))
-    result = FetchResult(ref, [_c("old", 600), _c("overlap", 30), _c("new", 1)])
-    assert [c.native_id for c in comments_to_store(result)] == ["overlap", "new"]
 
 
 def test_rerun_is_idempotent_and_keeps_analysis_state():
