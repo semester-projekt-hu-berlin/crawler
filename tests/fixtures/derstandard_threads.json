@@ -1,0 +1,581 @@
+{
+ "data": {
+  "getForumRootPostingsV2": {
+   "pageInfo": {
+    "nextCursor": "",
+    "previousCursor": "",
+    "hasNextPage": false,
+    "hasPreviousPage": false,
+    "__typename": "PageInfo"
+   },
+   "edges": [
+    {
+     "node": {
+      "id": "3L2Pql7U2OLPaMcBki4FCRMSSrf",
+      "lifecycleStatus": "Published",
+      "flags": [],
+      "rootPostingId": "3L2Pql7U2OLPaMcBki4FCRMSSrf",
+      "text": "Beispieltext 1 über Friedrich Merz und die SPD.",
+      "title": "Titel",
+      "previewLink": null,
+      "previewLinkCard": null,
+      "author": {
+       "id": "AUTHOR-ID-REDACTED",
+       "name": "Redacted User",
+       "lifecycleStatus": "Active",
+       "flags": [],
+       "metadata": [],
+       "status": "",
+       "followerCount": 0,
+       "__typename": "Author"
+      },
+      "metadata": [],
+      "reactions": {
+       "aggregated": [
+        {
+         "name": "positive",
+         "value": 2,
+         "statistic": "SUM",
+         "__typename": "Feature"
+        },
+        {
+         "name": "negative",
+         "value": 23,
+         "statistic": "SUM",
+         "__typename": "Feature"
+        }
+       ],
+       "__typename": "Reactions"
+      },
+      "history": {
+       "created": "2026-10-22T06:09:42.299Z",
+       "__typename": "PostingHistory"
+      },
+      "legacy": {
+       "communityName": "Redacted User",
+       "communityIdentityId": 0,
+       "postingId": 1001,
+       "__typename": "PostingLegacyData"
+      },
+      "__typename": "Posting",
+      "replies": [
+       {
+        "id": "3L2dclxrgWmOhpstIHlmWPcAeP3",
+        "lifecycleStatus": "Deleted",
+        "flags": [],
+        "rootPostingId": "3L2Pql7U2OLPaMcBki4FCRMSSrf",
+        "text": "Beispieltext 2 über Friedrich Merz und die SPD.",
+        "title": "",
+        "previewLink": null,
+        "previewLinkCard": null,
+        "author": {
+         "id": "AUTHOR-ID-REDACTED",
+         "name": "Redacted User",
+         "lifecycleStatus": "Active",
+         "flags": [],
+         "metadata": [],
+         "status": "",
+         "followerCount": 0,
+         "__typename": "Author"
+        },
+        "metadata": [],
+        "reactions": {
+         "aggregated": [
+          {
+           "name": "positive",
+           "value": 1,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          },
+          {
+           "name": "negative",
+           "value": 0,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          }
+         ],
+         "__typename": "Reactions"
+        },
+        "history": {
+         "created": "2026-10-22T08:02:57.824Z",
+         "__typename": "PostingHistory"
+        },
+        "legacy": {
+         "communityName": "Redacted User",
+         "communityIdentityId": 0,
+         "postingId": 1002,
+         "__typename": "PostingLegacyData"
+        },
+        "__typename": "Posting",
+        "replies": []
+       },
+       {
+        "id": "3L2W9ryA5IIDmb3pUhUIlsYOXBL",
+        "lifecycleStatus": "Published",
+        "flags": [],
+        "rootPostingId": "3L2Pql7U2OLPaMcBki4FCRMSSrf",
+        "text": "Beispieltext 3 über Friedrich Merz und die SPD.",
+        "title": "",
+        "previewLink": null,
+        "previewLinkCard": null,
+        "author": {
+         "id": "AUTHOR-ID-REDACTED",
+         "name": "Redacted User",
+         "lifecycleStatus": "Active",
+         "flags": [],
+         "metadata": [],
+         "status": "",
+         "followerCount": 0,
+         "__typename": "Author"
+        },
+        "metadata": [],
+        "reactions": {
+         "aggregated": [
+          {
+           "name": "positive",
+           "value": 2,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          },
+          {
+           "name": "negative",
+           "value": 0,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          }
+         ],
+         "__typename": "Reactions"
+        },
+        "history": {
+         "created": "2026-10-22T07:01:34.537Z",
+         "__typename": "PostingHistory"
+        },
+        "legacy": {
+         "communityName": "Redacted User",
+         "communityIdentityId": 0,
+         "postingId": 1003,
+         "__typename": "PostingLegacyData"
+        },
+        "__typename": "Posting",
+        "replies": []
+       },
+       {
+        "id": "3L2VXFtuyAc5QX2y3zDKwr5QhIM",
+        "lifecycleStatus": "Published",
+        "flags": [],
+        "rootPostingId": "3L2Pql7U2OLPaMcBki4FCRMSSrf",
+        "text": "Beispieltext 4 über Friedrich Merz und die SPD.",
+        "title": "",
+        "previewLink": null,
+        "previewLinkCard": null,
+        "author": {
+         "id": "AUTHOR-ID-REDACTED",
+         "name": "Redacted User",
+         "lifecycleStatus": "Active",
+         "flags": [],
+         "metadata": [],
+         "status": "",
+         "followerCount": 0,
+         "__typename": "Author"
+        },
+        "metadata": [],
+        "reactions": {
+         "aggregated": [
+          {
+           "name": "positive",
+           "value": 0,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          },
+          {
+           "name": "negative",
+           "value": 0,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          }
+         ],
+         "__typename": "Reactions"
+        },
+        "history": {
+         "created": "2026-10-22T06:56:27.474Z",
+         "__typename": "PostingHistory"
+        },
+        "legacy": {
+         "communityName": "Redacted User",
+         "communityIdentityId": 0,
+         "postingId": 1004,
+         "__typename": "PostingLegacyData"
+        },
+        "__typename": "Posting",
+        "replies": []
+       }
+      ]
+     },
+     "cursor": "eyJmb3J1bUlkIjoiM0wySE9RT0twbzg3UDJKbzlvUlFvQTlqZDNiIiwibWV0YSI6InBzdCNyb290IzNMMlBxbDdVMk9MUGFNY0JraTRGQ1JNU1NyZi4ifQ==",
+     "__typename": "Edge"
+    },
+    {
+     "node": {
+      "id": "3L2PJG6BvF07w6mJztDYEJ8xrt7",
+      "lifecycleStatus": "Published",
+      "flags": [],
+      "rootPostingId": "3L2PJG6BvF07w6mJztDYEJ8xrt7",
+      "text": "Beispieltext 10 über Friedrich Merz und die SPD.",
+      "title": "",
+      "previewLink": null,
+      "previewLinkCard": null,
+      "author": {
+       "id": "AUTHOR-ID-REDACTED",
+       "name": "Redacted User",
+       "lifecycleStatus": "Active",
+       "flags": [],
+       "metadata": [],
+       "status": "",
+       "followerCount": 0,
+       "__typename": "Author"
+      },
+      "metadata": [],
+      "reactions": {
+       "aggregated": [
+        {
+         "name": "positive",
+         "value": 63,
+         "statistic": "SUM",
+         "__typename": "Feature"
+        },
+        {
+         "name": "negative",
+         "value": 2,
+         "statistic": "SUM",
+         "__typename": "Feature"
+        }
+       ],
+       "__typename": "Reactions"
+      },
+      "history": {
+       "created": "2026-10-22T06:05:15.036Z",
+       "__typename": "PostingHistory"
+      },
+      "legacy": {
+       "communityName": "Redacted User",
+       "communityIdentityId": 0,
+       "postingId": 1010,
+       "__typename": "PostingLegacyData"
+      },
+      "__typename": "Posting",
+      "replies": [
+       {
+        "id": "3L2kAvN9N4WzwneDqMuzxHx2waY",
+        "lifecycleStatus": "Published",
+        "flags": [],
+        "rootPostingId": "3L2PJG6BvF07w6mJztDYEJ8xrt7",
+        "text": "Beispieltext 11 über Friedrich Merz und die SPD.",
+        "title": "",
+        "previewLink": null,
+        "previewLinkCard": null,
+        "author": {
+         "id": "AUTHOR-ID-REDACTED",
+         "name": "Redacted User",
+         "lifecycleStatus": "Active",
+         "flags": [],
+         "metadata": [],
+         "status": "",
+         "followerCount": 0,
+         "__typename": "Author"
+        },
+        "metadata": [],
+        "reactions": {
+         "aggregated": [
+          {
+           "name": "positive",
+           "value": 1,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          },
+          {
+           "name": "negative",
+           "value": 0,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          }
+         ],
+         "__typename": "Reactions"
+        },
+        "history": {
+         "created": "2026-10-22T08:56:49.055Z",
+         "__typename": "PostingHistory"
+        },
+        "legacy": {
+         "communityName": "Redacted User",
+         "communityIdentityId": 0,
+         "postingId": 1011,
+         "__typename": "PostingLegacyData"
+        },
+        "__typename": "Posting",
+        "replies": []
+       },
+       {
+        "id": "3L2jEUvhsVdDornidOqkyF9bB1l",
+        "lifecycleStatus": "Published",
+        "flags": [],
+        "rootPostingId": "3L2PJG6BvF07w6mJztDYEJ8xrt7",
+        "text": "Beispieltext 12 über Friedrich Merz und die SPD.",
+        "title": "",
+        "previewLink": null,
+        "previewLinkCard": null,
+        "author": {
+         "id": "AUTHOR-ID-REDACTED",
+         "name": "Redacted User",
+         "lifecycleStatus": "Active",
+         "flags": [],
+         "metadata": [],
+         "status": "",
+         "followerCount": 0,
+         "__typename": "Author"
+        },
+        "metadata": [],
+        "reactions": {
+         "aggregated": [
+          {
+           "name": "positive",
+           "value": 0,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          },
+          {
+           "name": "negative",
+           "value": 0,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          }
+         ],
+         "__typename": "Reactions"
+        },
+        "history": {
+         "created": "2026-10-22T08:49:04.171Z",
+         "__typename": "PostingHistory"
+        },
+        "legacy": {
+         "communityName": "Redacted User",
+         "communityIdentityId": 0,
+         "postingId": 1012,
+         "__typename": "PostingLegacyData"
+        },
+        "__typename": "Posting",
+        "replies": []
+       },
+       {
+        "id": "3L2d55GOs8Jpo5M3Q58UtAQfarn",
+        "lifecycleStatus": "Published",
+        "flags": [],
+        "rootPostingId": "3L2PJG6BvF07w6mJztDYEJ8xrt7",
+        "text": "Beispieltext 13 über Friedrich Merz und die SPD.",
+        "title": "",
+        "previewLink": null,
+        "previewLinkCard": null,
+        "author": {
+         "id": "AUTHOR-ID-REDACTED",
+         "name": "Redacted User",
+         "lifecycleStatus": "Active",
+         "flags": [],
+         "metadata": [],
+         "status": "",
+         "followerCount": 0,
+         "__typename": "Author"
+        },
+        "metadata": [],
+        "reactions": {
+         "aggregated": [
+          {
+           "name": "positive",
+           "value": 3,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          },
+          {
+           "name": "negative",
+           "value": 1,
+           "statistic": "SUM",
+           "__typename": "Feature"
+          }
+         ],
+         "__typename": "Reactions"
+        },
+        "history": {
+         "created": "2026-10-22T07:58:29.381Z",
+         "__typename": "PostingHistory"
+        },
+        "legacy": {
+         "communityName": "Redacted User",
+         "communityIdentityId": 0,
+         "postingId": 1013,
+         "__typename": "PostingLegacyData"
+        },
+        "__typename": "Posting",
+        "replies": [
+         {
+          "id": "3L2nVOeWtvwEQSEbadAZt2RhrYB",
+          "lifecycleStatus": "Published",
+          "flags": [],
+          "rootPostingId": "3L2PJG6BvF07w6mJztDYEJ8xrt7",
+          "text": "Beispieltext 14 über Friedrich Merz und die SPD.",
+          "title": "",
+          "previewLink": null,
+          "previewLinkCard": null,
+          "author": {
+           "id": "AUTHOR-ID-REDACTED",
+           "name": "Redacted User",
+           "lifecycleStatus": "Active",
+           "flags": [],
+           "metadata": [],
+           "status": "",
+           "followerCount": 0,
+           "__typename": "Author"
+          },
+          "metadata": [],
+          "reactions": {
+           "aggregated": [
+            {
+             "name": "positive",
+             "value": 0,
+             "statistic": "SUM",
+             "__typename": "Feature"
+            },
+            {
+             "name": "negative",
+             "value": 0,
+             "statistic": "SUM",
+             "__typename": "Feature"
+            }
+           ],
+           "__typename": "Reactions"
+          },
+          "history": {
+           "created": "2026-10-22T09:24:12.269Z",
+           "__typename": "PostingHistory"
+          },
+          "legacy": {
+           "communityName": "Redacted User",
+           "communityIdentityId": 0,
+           "postingId": 1014,
+           "__typename": "PostingLegacyData"
+          },
+          "__typename": "Posting",
+          "replies": []
+         },
+         {
+          "id": "3L2n3PQzaQPiXLjVJt2pNOxROPP",
+          "lifecycleStatus": "Published",
+          "flags": [],
+          "rootPostingId": "3L2PJG6BvF07w6mJztDYEJ8xrt7",
+          "text": "Beispieltext 15 über Friedrich Merz und die SPD.",
+          "title": "",
+          "previewLink": null,
+          "previewLinkCard": null,
+          "author": {
+           "id": "AUTHOR-ID-REDACTED",
+           "name": "Redacted User",
+           "lifecycleStatus": "Active",
+           "flags": [],
+           "metadata": [],
+           "status": "",
+           "followerCount": 0,
+           "__typename": "Author"
+          },
+          "metadata": [],
+          "reactions": {
+           "aggregated": [
+            {
+             "name": "positive",
+             "value": 0,
+             "statistic": "SUM",
+             "__typename": "Feature"
+            },
+            {
+             "name": "negative",
+             "value": 0,
+             "statistic": "SUM",
+             "__typename": "Feature"
+            }
+           ],
+           "__typename": "Reactions"
+          },
+          "history": {
+           "created": "2026-10-22T09:20:30.658Z",
+           "__typename": "PostingHistory"
+          },
+          "legacy": {
+           "communityName": "Redacted User",
+           "communityIdentityId": 0,
+           "postingId": 1015,
+           "__typename": "PostingLegacyData"
+          },
+          "__typename": "Posting",
+          "replies": []
+         }
+        ]
+       }
+      ]
+     },
+     "cursor": "eyJmb3J1bUlkIjoiM0wySE9RT0twbzg3UDJKbzlvUlFvQTlqZDNiIiwibWV0YSI6InBzdCNyb290IzNMMlBKRzZCdkYwN3c2bUp6dERZRUo4eHJ0Ny4ifQ==",
+     "__typename": "Edge"
+    },
+    {
+     "node": {
+      "id": "3L2NeHqox8SirIHfjuBJFhZravg",
+      "lifecycleStatus": "Published",
+      "flags": [],
+      "rootPostingId": "3L2NeHqox8SirIHfjuBJFhZravg",
+      "text": "Beispieltext 16 über Friedrich Merz und die SPD.",
+      "title": "",
+      "previewLink": null,
+      "previewLinkCard": null,
+      "author": {
+       "id": "AUTHOR-ID-REDACTED",
+       "name": "Redacted User",
+       "lifecycleStatus": "Active",
+       "flags": [],
+       "metadata": [],
+       "status": "",
+       "followerCount": 0,
+       "__typename": "Author"
+      },
+      "metadata": [],
+      "reactions": {
+       "aggregated": [
+        {
+         "name": "positive",
+         "value": 2,
+         "statistic": "SUM",
+         "__typename": "Feature"
+        },
+        {
+         "name": "negative",
+         "value": 0,
+         "statistic": "SUM",
+         "__typename": "Feature"
+        }
+       ],
+       "__typename": "Reactions"
+      },
+      "history": {
+       "created": "2026-10-22T05:51:36.987Z",
+       "__typename": "PostingHistory"
+      },
+      "legacy": {
+       "communityName": "Redacted User",
+       "communityIdentityId": 0,
+       "postingId": 1016,
+       "__typename": "PostingLegacyData"
+      },
+      "__typename": "Posting",
+      "replies": []
+     },
+     "cursor": "eyJmb3J1bUlkIjoiM0wySE9RT0twbzg3UDJKbzlvUlFvQTlqZDNiIiwibWV0YSI6InBzdCNyb290IzNMMk5lSHFveDhTaXJJSGZqdUJKRmhacmF2Zy4ifQ==",
+     "__typename": "Edge"
+    }
+   ],
+   "__typename": "RootPostings"
+  }
+ }
+}
