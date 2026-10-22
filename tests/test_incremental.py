@@ -3,6 +3,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 
+from crawler.ids import BERLIN
 from crawler.models import ArticleRef, Comment, FetchResult
 from crawler.pipeline import RunOptions, SourceRunner, StreamRunner, comments_to_store, priority, revisit_due
 from crawler.sources.base import IncrementalPager, Source, StreamItem, StreamSource
@@ -295,7 +296,9 @@ class FakeStream(StreamSource):
 
 
 def test_stream_runner_inserts_once_and_never_resends_overlap():
-    now = datetime.now(UTC)
+    # anchor at yesterday's noon (Berlin) so all items fall on the same day, whatever time the test runs
+    today = datetime.now(BERLIN).replace(hour=12, minute=0, second=0, microsecond=0)
+    now = (today - timedelta(days=1)).astimezone(UTC)
     a = _c("a", now - timedelta(minutes=30))
     b = _c("b", now - timedelta(minutes=5))
     c = _c("c", now + timedelta(minutes=1))

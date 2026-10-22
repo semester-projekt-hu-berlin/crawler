@@ -181,3 +181,67 @@ def test_day_article_groups_posts_by_berlin_day():
     )
     assert late.url.endswith("&day=2026-10-22")
     assert late.published_at == datetime(2026, 10, 21, 22, 0, tzinfo=UTC)
+
+
+# ------------------------------------------------------------------ Cicero, Achgut, RSS
+
+
+def test_cicero_comments(fixture_path):
+    from crawler.sources.cicero import parse_comments as cicero_comments
+
+    comments = cicero_comments(BeautifulSoup(fixture_path("cicero_article.html").read_text(), "lxml"))
+    assert [c.native_id for c in comments] == ["496299", "496309"]
+    assert (
+        comments[0].text
+        == "Ganz nebenbei: Haben Doppelstaatler das Wahlrecht zum Regierenden Bürgermeister?\n\nDas sollte man wissen."
+    )
+    assert comments[0].published_at == datetime(2026, 10, 20, 12, 3, 59, tzinfo=UTC)
+    assert comments[1].native_parent_id == "496299"
+    assert all("Muster" not in c.text and "Erika" not in c.text for c in comments)
+
+
+def test_achgut_comments_and_day_resolution(fixture_path):
+    from crawler.sources.achgut import Achgut
+    from crawler.sources.achgut import parse_comments as achgut_comments
+
+    comments = achgut_comments(BeautifulSoup(fixture_path("achgut_article.html").read_text(), "lxml"))
+    assert [c.native_id for c in comments] == ["1284690", "1284700"]
+    assert comments[0].text == "Geschichte ist nicht jedermanns Sache."  # @mention stripped
+    assert comments[1].native_parent_id == "1284690"
+    assert comments[0].published_at == datetime(2026, 10, 21, 22, 0, tzinfo=UTC)  # midnight Berlin
+
+    class Resp:
+        text = fixture_path("achgut_article.html").read_text()
+
+    class Http:
+        def get(self, url, **kw):
+            return Resp()
+
+    result = Achgut(Http()).fetch(ArticleRef("https://www.achgut.com/artikel/x", "achgut"))
+    assert result.day_resolution and len(result.comments) == 2
+
+
+def test_day_resolution_revisit_checks_by_reading():
+    from crawler.models import Comment, FetchResult
+    from crawler.pipeline import comments_to_store
+
+    crawl = datetime(2026, 10, 22, 16, 0, tzinfo=UTC)
+    ref = ArticleRef("u", "achgut", known=True, last_comment_crawl_at=crawl, known_comment_count=1)
+    today = Comment("achgut", "1", "a", datetime(2026, 10, 21, 22, 0, tzinfo=UTC))  # 22 Oct, Berlin
+    older = Comment("achgut", "2", "b", datetime(2026, 10, 20, 22, 0, tzinfo=UTC))
+    write, check = comments_to_store(FetchResult(ref, [today, older], 2, day_resolution=True))
+    assert write == [] and check == [today]
+
+
+def test_parse_rss():
+    from crawler.discovery import parse_rss
+
+    xml = b"""<?xml version="1.0"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>
+    <item><title>A &amp; B</title><link>https://www.cicero.de/innenpolitik/ein-artikel-ueber-x?utm=1</link>
+    <pubDate>Wed, 21 Oct 2026 12:17:17 +0000</pubDate><category>Innenpolitik</category></item>
+    <item><title>C</title><link>https://www.achgut.com/artikel/c_d</link><dc:date>2026-10-22T12:00:00+00:00</dc:date>
+    <dc:subject>Inland, Migration,</dc:subject></item></channel></rss>"""
+    a, b = parse_rss(xml)
+    assert a.url == "https://www.cicero.de/innenpolitik/ein-artikel-ueber-x" and a.title == "A & B"
+    assert a.published_at == datetime(2026, 10, 21, 12, 17, 17, tzinfo=UTC) and a.keywords == ["Innenpolitik"]
+    assert b.published_at == datetime(2026, 10, 22, 12, 0, tzinfo=UTC) and b.keywords == ["Inland", "Migration"]

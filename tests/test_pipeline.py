@@ -52,7 +52,11 @@ class FakeStore(Firestore):
             doc.update(data)
             for t in body.get("updateTransforms", []):
                 inc = int(t["increment"]["integerValue"])
-                doc[t["fieldPath"]] = doc.get(t["fieldPath"], 0) + inc
+                *parents, leaf = t["fieldPath"].split(".")
+                target = doc
+                for key in parents:
+                    target = target.setdefault(key, {})
+                target[leaf] = target.get(leaf, 0) + inc
             res.ok.append(w)
         return res
 

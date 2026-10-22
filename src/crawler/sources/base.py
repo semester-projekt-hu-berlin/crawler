@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
-from crawler.discovery import parse_news_sitemap
+from crawler.discovery import parse_news_sitemap, parse_rss
 from crawler.http import PoliteSession
 from crawler.ids import BERLIN, berlin_day
 from crawler.models import ArticleRef, Comment, FetchResult
@@ -26,6 +26,8 @@ class Source(ABC):
     domain: ClassVar[str]
     country: ClassVar[str]
     news_sitemap: ClassVar[str]
+    # "sitemap" (Google News sitemap) or "rss" (RSS 2.0 feed) at ``news_sitemap``.
+    feed_type: ClassVar[str] = "sitemap"
     # "news" (comments under articles) or "social" (public posts, grouped into pseudo-articles).
     source_type: ClassVar[str] = "news"
 
@@ -54,7 +56,8 @@ class Source(ABC):
         resp = self.http.get(self.news_sitemap)
         refs: list[ArticleRef] = []
         seen: set[str] = set()
-        for entry in parse_news_sitemap(resp.content):
+        parse = parse_rss if self.feed_type == "rss" else parse_news_sitemap
+        for entry in parse(resp.content):
             url = self.canonical_url(entry.url) if self.accept_url(entry.url) else None
             if url is None or url in seen:
                 continue

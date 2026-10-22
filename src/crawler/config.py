@@ -47,6 +47,9 @@ FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)")
 SOURCE_LIMITS: dict[str, dict[str, int]] = {
     "derstandard": {"max_new_articles_per_run": 10, "max_comments_per_run": 2500},
     "blick": {"max_new_articles_per_run": 15, "max_comments_per_run": 800},
+    # small sources, capped only as a safety net for the Firestore budget
+    "cicero": {"max_comments_per_run": 600},
+    "achgut": {"max_comments_per_run": 400},
 }
 LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run")
 

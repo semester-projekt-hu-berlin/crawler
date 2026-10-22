@@ -8,9 +8,11 @@ pulling in a full article extraction framework.
 
 from __future__ import annotations
 
+import html
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
 from lxml import etree
@@ -112,3 +114,38 @@ def parse_page_meta(soup: BeautifulSoup) -> PageMeta:
         topics = topics[:-1]
     meta.topics = topics
     return meta
+
+
+DC = "http://purl.org/dc/elements/1.1/"
+
+
+def parse_rss(xml: bytes) -> list[SitemapEntry]:
+    """RSS 2.0 items as :class:`SitemapEntry` (``pubDate`` or ``dc:date``; categories as keywords)."""
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, recover=True)
+    root = etree.fromstring(xml, parser=parser)
+    entries: list[SitemapEntry] = []
+    if root is None:
+        return entries
+    for item in root.iter("item"):
+        link = (item.findtext("link") or "").strip()
+        if not link:
+            continue
+        published = None
+        pub = item.findtext("pubDate")
+        if pub:
+            try:
+                published = parsedate_to_datetime(pub.strip()).astimezone(UTC)
+            except (TypeError, ValueError):
+                published = None
+        if published is None:
+            published = parse_datetime(item.findtext(f"{{{DC}}}date"))
+        keywords = [c.text.strip() for c in item.findall("category") if c.text and c.text.strip()]
+        subject = item.findtext(f"{{{DC}}}subject") or ""
+        keywords += [k.strip() for k in subject.split(",") if k.strip() and k.strip() not in keywords]
+        title = clean_title(item.findtext("title") or "")
+        entries.append(SitemapEntry(canonicalize_url(link), title, published, keywords))
+    return entries
+
+
+def clean_title(text: str) -> str:
+    return " ".join(html.unescape(text).split())

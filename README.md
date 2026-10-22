@@ -15,6 +15,8 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 |---|---|---|---|---|---|---|---|
 | `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | ~750 (≈5 discussions/day × 100–200) |
 | `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | ~950 |
+| `cicero` | [Cicero](https://www.cicero.de) | news | DE | conservative-liberal | RSS `/rss.xml` | comment list in the article HTML | ~250 |
+| `achgut` | [Achse des Guten](https://www.achgut.com) | news | DE | right-libertarian | RSS `/rss` | reader letters in the article HTML | ~150 |
 | `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | ~20 |
 | `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | ~300 |
 | `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ~4,500 (capped; uncapped ~15,000–20,000) |
@@ -84,6 +86,22 @@ applies. `python -m crawler check-robots` prints the live decision for every end
   the source re-reads a 12-hour overlap and drops already stored comments with a Firestore read (never a write).
   Article URL = WordPress shortlink `https://www.tichyseinblick.de/?p=<id>`.
 
+**Cicero** (`cicero.de`)
+
+- `www.cicero.de/robots.txt`, group `*`: only Drupal internals (`/core/`, `/profiles/`, `/admin/`,
+  `/comment/reply/`, `/user/...`, `/search/`, `/node/add/`). Article pages (with `?page=N`) and `/rss.xml` are allowed.
+- How: comments are part of the article HTML (`article.comment#comment-<n>`, `data-comment-timestamp`, subject +
+  body, replies in `div.indented` after the parent). The `<h6>` with the user name is not read.
+
+**Achse des Guten** (`achgut.com`)
+
+- `www.achgut.com/robots.txt`, group `*`: disallows `/wp-admin/`, login, search and two single paths, and sets
+  **`Crawl-delay: 10`**, which the crawler obeys (one request every 10 s).
+- How: reader letters are in the article HTML (`li.comment#<n>`, `.comment-content`, replies nested in
+  `ol.children`). Only the **date** of a letter is published, so a revisit checks the letters of the cutoff day
+  with Firestore reads and writes only missing ones. Readers often address each other by name in the text; those
+  names cannot be removed reliably (same as on the other sites).
+
 **der Freitag** (`freitag.de`)
 
 - `www.freitag.de/robots.txt`, group `*`: only `Disallow: /acl_users/session/` and
@@ -141,6 +159,17 @@ applies. `python -m crawler check-robots` prints the live decision for every end
 | jungefreiheit.de | WordPress REST comments require login (401). |
 | social.tchncs.de | robots.txt `User-agent: * Disallow: /`. |
 | chaos.social | Connection reset from our network; not reachable. |
+| bild.de | No public comment function any more: article pages contain no comment markup or comment requests (only "Kommentar" as an editorial genre). robots.txt additionally disallows `/community/`; `rsl.xml` prohibits AI training/input use. |
+| rp-online.de | Public comment API (`psc.rp-online.de`, robots 404) exists, but returns `commentAreaStatus: "hideAll"` for every article we checked: comments are not shown to anonymous readers. |
+| badische-zeitung.de | Coral comments load only for logged-in (BZ-Plus) readers; nothing is loaded anonymously. |
+| stuttgarter-zeitung.de, stuttgarter-nachrichten.de, mopo.de, focus.de | Comments via `*.engagently.com`, whose robots.txt is unreachable (treated as disallow). |
+| weser-kurier.de | Disqus. disqus.com's robots.txt allows the embed, but reading needs the Disqus API (key, terms); not worth it for the volume. |
+| augsburger-allgemeine.de | Comment section only with login (posting endpoint `/user/comment/post`, no public list found). |
+| handelsblatt.com | Mostly paywalled; only a comment detail page marker found, no public comment list. |
+| berliner-zeitung.de, t-online.de, nordkurier.de | No public comment section found on article pages. |
+| nachdenkseiten.de | No comment function; "Leserbriefe" are an editorial selection published as articles. |
+| YouTube (Data API v3) | Technically ideal (official, free key, comments under tagesschau/ZDF/WELT/BILD videos), but the **YouTube API Developer Policies** forbid our core use: "Do not aggregate API Data except ... relating to YouTube channels that are under the same content owner" (section III.E "Data Aggregation"). Our dashboards aggregate sentiment across channels. In addition, Non-Authorized Data may be stored for at most 30 days and must be refreshed or deleted. The fitting route is the **YouTube Researcher Program** (academic access, own terms) for HU Berlin; not implemented. |
+| reddit.com (r/de, r/Germany) | robots.txt `User-agent: * Disallow: /`; unauthenticated JSON returns 403. Access needs a registered OAuth app approved under Reddit's Responsible Builder Policy / research access (r/reddit4researchers), the Data API terms require deleting content that users delete (periodic re-checks). Not implemented without the owner's decision. |
 | abgeordnetenwatch.de | The API (CC0 1.0) covers politicians, mandates, polls and votes but **no citizen questions**; the questions exist only as web pages. Useful for the analysis team (entity list of politicians), not as a comment source. |
 
 ## Data protection and ethics
@@ -335,8 +364,10 @@ Estimated new comments per day with the caps (2 runs a day):
 | tagesschau | ~750 |
 | taz | ~300 |
 | mastodon | ~250 |
+| cicero | ~250 (cap 600/run) |
+| achgut | ~150 (cap 400/run) |
 | freitag | ~20 |
-| **total** | **~10,000–11,500**, about 60 % from German sources |
+| **total** | **~10,400–11,900**, about 60 % from German sources |
 
 A dry run (`python -m crawler run --sources derstandard,blick --since-hours 24 --dry-run`) on 22 Oct 2026 took
 10 of 168 derStandard candidates (1,953 comments, the first crawl of busy forums) and 15 of 131 Blick
@@ -346,6 +377,24 @@ for up to 3 days, so the volume falls to the target over that period.
 Each new comment costs one write by the crawler and one update by the analysis; revisits that find nothing new
 cost no writes (see "Revisits"). At roughly $0.18 per 100k writes and $0.06 per 100k reads (europe-west3) the
 crawler costs a few cents per day.
+
+## Daily Firestore budget
+
+All components share a hard daily budget in `meta/budget` (contract in SCHEMA.md) so the project stays under
+~€3.70/month; the billing alert only warns. Defaults: 60,000 writes and 200,000 reads per day for all
+components, of which the crawler may use 25,000 writes and 60,000 reads (`DAILY_WRITE_LIMIT`,
+`DAILY_READ_LIMIT`, `CRAWLER_DAILY_WRITE_LIMIT`, `CRAWLER_DAILY_READ_LIMIT`).
+
+- Run start: one read of `meta/budget` (counters of another day count as 0). If the budget is used up, the run
+  logs `budget.exhausted` and exits 0.
+- During the run: the Firestore client counts every write and document read; runners stop starting new articles
+  (stream sources: fetch fewer items) when the remaining budget minus a reserve of 200 writes / 100 reads is
+  reached. The current article/batch is always finished.
+- Run end: one write adds the run's counts (`increment` on `writes.crawler` / `reads.crawler`, or a reset when the
+  day changed), with the document's `updateTime` as precondition and retries on conflict.
+- The run summary shows `crawler_writes_today`, `crawler_reads_today`, `writes_left_today`, `reads_left_today`.
+
+At ~11k comments/day the crawler needs roughly 12–14k writes and 5–10k reads per day, well inside its share.
 
 ## Schedule
 

@@ -16,9 +16,10 @@ from .test_pipeline import FakeStore
 NOW = datetime.now(UTC)
 
 
-def test_defaults_cap_only_derstandard_and_blick():
+def test_defaults_cap_only_selected_sources():
     limits = source_limits([])
-    assert set(limits) == {"derstandard", "blick"} == set(SOURCE_LIMITS)
+    assert set(limits) == {"derstandard", "blick", "cicero", "achgut"} == set(SOURCE_LIMITS)
+    assert not {"tagesschau", "taz", "tichyseinblick", "freitag", "mastodon", "bluesky"} & set(limits)
     assert all(v > 0 for vals in limits.values() for v in vals.values())
 
 

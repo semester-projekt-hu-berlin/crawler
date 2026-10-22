@@ -92,3 +92,5 @@ class FetchResult:
     unchanged: bool = False
     # Native thread id discovered while fetching (stored as ``commentThreadId``).
     thread_id: str | None = None
+    # The source shows only the date of a comment (no time): revisits check candidates by reading.
+    day_resolution: bool = False

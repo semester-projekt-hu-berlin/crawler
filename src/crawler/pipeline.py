@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import IO, Any
 
+from crawler.budget import RESERVE_WRITES, Budget, commit_usage
 from crawler.config import (
     COMMENT_OVERLAP,
     DAILY_SLOT_END_HOUR_UTC,
@@ -19,12 +20,18 @@ from crawler.config import (
 )
 from crawler.firestore import Firestore, Write
 from crawler.http import PoliteSession, RobotsDisallowed
+from crawler.ids import BERLIN, berlin_day
 from crawler.logging_setup import log_event
 from crawler.models import ArticleRef, Comment, FetchResult
 from crawler.sources import SOURCES, Source
 from crawler.sources.base import StreamItem, StreamSource
 
 log = logging.getLogger(__name__)
+
+
+class BudgetExhausted(Exception):
+    """Raised inside a runner when the daily Firestore budget is used up."""
+
 
 # Pre-moderated comments can appear this long after their timestamp (see comments_to_store).
 LATE_WINDOW = timedelta(hours=3)
@@ -68,6 +75,8 @@ class RunOptions:
     max_articles: int = 500
     # Stream sources: max posts/comments per source and run.
     max_items: int = 3000
+    # Daily Firestore budget (set by run(); None in dry runs).
+    budget: Budget | None = None
     # Per-source caps, see config.SOURCE_LIMITS.
     source_limits: dict[str, dict[str, int]] = field(default_factory=dict)
     since_hours: float = 48.0
@@ -86,6 +95,8 @@ class RunSummary:
     http_bytes: int = 0
     firestore_writes: int = 0
     firestore_reads: int = 0
+    budget: dict[str, Any] = field(default_factory=dict)
+    skipped_budget: bool = False
 
     def totals(self) -> dict[str, int]:
         keys = (
@@ -120,6 +131,8 @@ class RunSummary:
             f"### Crawl run {self.started_at}{mode}\n\n{head}{rows}\n"
             f"HTTP requests: {self.http_requests} ({self.http_bytes / 1e6:.1f} MB on the wire), "
             f"Firestore writes: {self.firestore_writes}, Firestore document reads: {self.firestore_reads}\n"
+            + (f"\nDaily budget: {json.dumps(self.budget)}\n" if self.budget else "")
+            + ("\n**Skipped: daily Firestore budget exhausted.**\n" if self.skipped_budget else "")
         )
 
 
@@ -168,6 +181,10 @@ def comments_to_store(result: FetchResult) -> tuple[list[Comment], list[Comment]
         return [], []
     if since is None:
         return result.comments, []
+    if result.day_resolution:
+        # Only dates are known: everything from the day of the cutoff on may be new; check by reading.
+        day_start = datetime.strptime(berlin_day(since), "%Y-%m-%d").replace(tzinfo=BERLIN).astimezone(UTC)
+        return [], [c for c in result.comments if c.published_at >= day_start]
     fresh = [c for c in result.comments if c.published_at >= since]
     expected = ref.expected_new(result.reported_total)
     if result.complete and expected is not None:
@@ -233,6 +250,10 @@ class SourceRunner:
 
     def _ev(self, event: str, level: int = logging.INFO, **fields: Any) -> None:
         log_event(self.log, event, level, source=self.source.id, **fields)
+
+    def budget_hit(self) -> bool:
+        budget, store = self.opts.budget, self.store
+        return bool(budget and store is not None and budget.should_stop(store.write_count, store.read_count))
 
     # -- candidate selection
 
@@ -394,6 +415,9 @@ class SourceRunner:
                 if self.deadline and time.monotonic() > self.deadline:
                     self._ev("source.time_budget_exhausted", logging.WARNING, done=i - 1)
                     break
+                if self.budget_hit():
+                    self._ev("budget.stop", logging.WARNING, done=i - 1, of=len(refs))
+                    break
                 max_comments = self.limits.get("max_comments_per_run")
                 if max_comments and not ref.known and self.stats.comments_new >= max_comments:
                     self.stats.articles_capped += 1
@@ -480,10 +504,20 @@ class StreamRunner:
         try:
             now = datetime.now(UTC)
             since = self.window(now)
-            items = self.source.fetch_since(since, now, self.opts.max_items)
+            max_items = self.opts.max_items
+            budget, store = self.opts.budget, self.store
+            if budget and store is not None:
+                if budget.should_stop(store.write_count, store.read_count):
+                    self._ev("budget.stop", logging.WARNING)
+                    raise BudgetExhausted
+                # roughly one write per item; keep the reserve for the article writes
+                max_items = max(0, min(max_items, budget.writes_left - RESERVE_WRITES - store.write_count))
+            items = self.source.fetch_since(since, now, max_items)
             self.stats.comments_seen = len(items)
             self._ev("source.start", since=since.isoformat(timespec="seconds"), items=len(items))
             self.store_items(self.drop_stored(items), now)
+        except BudgetExhausted:
+            pass
         except Exception as exc:  # noqa: BLE001
             self.stats.error = f"{type(exc).__name__}: {exc}"[:300]
             self._ev("source.failed", logging.ERROR, error=self.stats.error)
@@ -605,6 +639,14 @@ def run(source_ids: list[str], opts: RunOptions, store: Firestore | None) -> Run
     sources = [SOURCES[sid](http) for sid in source_ids]
     docs: dict[str, dict[str, Any] | None] = {}
     if store is not None:
+        opts.budget = Budget.load(store)
+        if opts.budget.exhausted:
+            log_event(log, "budget.exhausted", logging.WARNING, **opts.budget.summary(0, 0),
+                      message="daily Firestore budget used up, skipping this run")  # fmt: skip
+            summary.skipped_budget = True
+            summary.budget = opts.budget.summary(store.write_count, store.read_count)
+            summary.finished_at = datetime.now(UTC).isoformat(timespec="seconds")
+            return summary
         sources, docs = sync_sources(store, sources)
     deadline = time.monotonic() + opts.time_budget_s if opts.time_budget_s else None
     runners: list[SourceRunner | StreamRunner] = []
@@ -619,8 +661,13 @@ def run(source_ids: list[str], opts: RunOptions, store: Firestore | None) -> Run
         summary.sources = list(pool.map(lambda r: r.run(), runners))
     if store is not None:
         finalize(store, summary.sources, len(SOURCES))
+        # +1 write and +1 read for the budget update itself
+        run_writes, run_reads = store.write_count + 1, store.read_count + 1
+        commit_usage(store, run_writes, run_reads)
         summary.firestore_writes = store.write_count
         summary.firestore_reads = store.read_count
+        if opts.budget is not None:
+            summary.budget = opts.budget.summary(run_writes, run_reads)
     summary.http_requests = http.request_count
     summary.http_bytes = http.bytes_received
     summary.finished_at = datetime.now(UTC).isoformat(timespec="seconds")

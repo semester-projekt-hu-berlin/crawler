@@ -183,6 +183,16 @@ class Firestore:
         docs = self.batch_get([path])
         return docs.get(path)
 
+    def get_with_update_time(self, path: str) -> tuple[dict[str, Any] | None, str | None]:
+        """Document fields plus its ``updateTime`` (for optimistic concurrency), or ``(None, None)``."""
+        result = self._request("POST", f"{self.base}:batchGet", json={"documents": [self.doc_name(path)]})
+        with self._lock:
+            self.read_count += 1
+        for item in result:
+            if "found" in item:
+                return decode_fields(item["found"].get("fields", {})), item["found"].get("updateTime")
+        return None, None
+
     def batch_get(self, paths: Sequence[str]) -> dict[str, dict[str, Any] | None]:
         """Read many documents. Returns ``{path: fields or None}``."""
         out: dict[str, dict[str, Any] | None] = {}

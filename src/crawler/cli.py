@@ -163,6 +163,10 @@ def cmd_check_robots() -> int:
         "https://norden.social/api/v1/timelines/public?local=true",
         "https://troet.cafe/api/v1/timelines/public?local=true",
         "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=die&lang=de",
+        "https://www.cicero.de/rss.xml",
+        "https://www.cicero.de/innenpolitik/ein-artikel?page=1",
+        "https://www.achgut.com/rss",
+        "https://www.achgut.com/artikel/ein_artikel",
     ]
     robots = RobotsCache()
     ok = True
