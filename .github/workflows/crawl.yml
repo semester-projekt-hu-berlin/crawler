@@ -1,0 +1,65 @@
+name: Crawl comments
+
+on:
+  schedule:
+    # every 2 hours (UTC), at minute 17 to avoid the top-of-the-hour rush
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Comma separated source ids or 'all'"
+        default: "all"
+      max_articles:
+        description: "Max articles per source (new + revisited)"
+        default: "500"
+      since_hours:
+        description: "Discover articles from the last H hours"
+        default: "48"
+
+# Never run two crawls at the same time (idempotent anyway, but doubles the load on the sites).
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: pip install .
+
+      - name: Crawl
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          LOG_FORMAT: json
+          SOURCES: ${{ inputs.sources || 'all' }}
+          MAX_ARTICLES: ${{ inputs.max_articles || '500' }}
+          SINCE_HOURS: ${{ inputs.since_hours || '48' }}
+        run: |
+          python -m crawler run \
+            --sources "$SOURCES" \
+            --max-articles "$MAX_ARTICLES" \
+            --since-hours "$SINCE_HOURS" \
+            --time-budget-minutes 95 \
+            --summary-json run-summary.json
+
+      - name: Upload run summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-summary-${{ github.run_id }}
+          path: run-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
