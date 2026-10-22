@@ -9,8 +9,8 @@ Disallow: /suche/
 Disallow: */comment-thread?
 Disallow: /*comment/
 Allow: /*comment/public$
-Disallow: /api/
 Allow: /api/ticker
+Disallow: /api/
 Crawl-delay: 2
 """
 
@@ -49,3 +49,9 @@ def test_full_disallow_for_star():
 def test_unavailable_and_unreachable():
     assert RobotsPolicy(None, allow_all=True).can_fetch("https://capi.ds.at/forum-serve-graphql/v1/")
     assert not RobotsPolicy(None, disallow_all=True).can_fetch("https://x.de/")
+
+
+def test_stdlib_check_can_only_restrict():
+    # urllib.robotparser applies the first matching rule; if it denies, we deny as well.
+    p = RobotsPolicy("User-agent: *\nDisallow: /api/\nAllow: /api/ticker\n")
+    assert not p.can_fetch("https://x.de/api/other")

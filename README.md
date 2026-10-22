@@ -79,7 +79,7 @@ applies. `python -m crawler check-robots` prints the live decision for every end
 - Only what the analysis needs is stored: text, timestamps, thread structure (`parentId`), upvotes.
 - Only public content: no login, no cookies, no paywall circumvention, no bot-protection circumvention.
 - Comment text is internal to the pipeline (see SCHEMA.md); the public API only serves aggregates.
-- **Politeness:** robots.txt is checked (with wildcard support) before *every* request, including redirect
+- **Politeness:** robots.txt is checked before *every* request (with `urllib.robotparser` plus our own RFC 9309 wildcard evaluation; both must allow), including redirect
   targets. At most one request every 1.5 s per host (more if `Crawl-delay` says so), one worker per source,
   retries with exponential backoff on 429/5xx honouring `Retry-After`. Revisits back off as articles age.
 
@@ -105,7 +105,7 @@ src/crawler/
     blick.py        Viafoura API
   discovery.py      Google News sitemap parser, JSON-LD/breadcrumb article metadata
   http.py           PoliteSession: robots check, per-host throttle, retries
-  robots.py         robots.txt via urllib.robotparser + RFC 9309 wildcard matching
+  robots.py         robots.txt: urllib.robotparser + own RFC 9309 group/wildcard evaluation
   firestore.py      Firestore REST client (batchGet, runQuery, batchWrite)
   ids.py            deterministic IDs, Berlin day keys, date parsing
   text.py           text cleaning, @mention stripping

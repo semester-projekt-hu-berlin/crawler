@@ -1,11 +1,14 @@
 """robots.txt handling.
 
-Parsing and user-agent group selection use :mod:`urllib.robotparser` from the
-standard library. Its rule *matching* only supports plain prefixes, but almost
-every news site uses wildcards (``Disallow: /*comment/``, ``Disallow: */comment-thread?``).
-We therefore evaluate the rules of the selected group ourselves following
-RFC 9309 / Google semantics: ``*`` matches any sequence, ``$`` anchors the end,
-the longest matching rule wins and ``Allow`` wins a tie.
+Every URL must be allowed by two checks:
+
+1. :mod:`urllib.robotparser` from the standard library, and
+2. our own RFC 9309 evaluation. The standard library only supports plain prefix
+   rules, but almost every news site uses wildcards (``Disallow: /*comment/``,
+   ``Disallow: */comment-thread?``), and its path normalisation differs between
+   Python versions. We therefore also parse the groups ourselves: ``*`` matches
+   any sequence, ``$`` anchors the end, the longest matching rule wins and
+   ``Allow`` wins a tie.
 
 Fetch outcomes (RFC 9309, section 2.3.1):
 
@@ -16,6 +19,7 @@ Fetch outcomes (RFC 9309, section 2.3.1):
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import threading
@@ -51,47 +55,69 @@ class _Rule:
         return self.regex.match(path) is not None
 
 
+def _parse_groups(text: str) -> list[tuple[list[str], list[tuple[str, str]]]]:
+    """Split robots.txt into groups ``(user_agents, [(field, value), ...])`` (RFC 9309 section 2.1)."""
+    groups: list[tuple[list[str], list[tuple[str, str]]]] = []
+    agents: list[str] = []
+    rules: list[tuple[str, str]] = []
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if ":" not in line:
+            continue
+        key, value = (part.strip() for part in line.split(":", 1))
+        key = key.lower()
+        if key in ("user-agent", "useragent"):
+            if rules:  # a user-agent line after rules starts a new group
+                groups.append((agents, rules))
+                agents, rules = [], []
+            agents.append(value.lower())
+        elif key in ("allow", "disallow", "crawl-delay") and agents:
+            rules.append((key, value))
+    if agents:
+        groups.append((agents, rules))
+    return groups
+
+
 class RobotsPolicy:
-    """Rules of one host for our user agent."""
+    """Rules of one host for our user agent.
+
+    Groups naming our product token win; otherwise the ``*`` groups apply (several
+    matching groups are merged, as RFC 9309 requires). In addition, the URL must
+    be allowed by :mod:`urllib.robotparser` (it cannot evaluate wildcards, so it
+    only ever adds restrictions, never removes them).
+    """
 
     def __init__(self, text: str | None, *, allow_all: bool = False, disallow_all: bool = False) -> None:
         self.allow_all = allow_all
         self.disallow_all = disallow_all
         self.rules: list[_Rule] = []
         self.crawl_delay: float | None = None
-        if text is not None:
-            parser = urllib.robotparser.RobotFileParser()
-            parser.parse(text.splitlines())
-            entry = self._select_entry(parser)
-            if entry is not None:
-                for line in entry.rulelines:
-                    # robotparser stores percent-quoted paths; "*" and "$" become %2A / %24.
-                    pattern = unquote(line.path)
-                    if not pattern:
-                        # "Disallow:" (empty) means allow everything; it adds no rule.
-                        continue
-                    if not pattern.startswith(("/", "*")):
-                        pattern = "/" + pattern
-                    self.rules.append(_Rule(pattern, bool(line.allowance)))
-                delay = entry.delay
-                self.crawl_delay = float(delay) if delay is not None else None
-
-    @staticmethod
-    def _select_entry(parser: urllib.robotparser.RobotFileParser):  # noqa: ANN205 - stdlib private type
-        """The group naming our product token, else the ``*`` group (RFC 9309 2.2.1)."""
-        star = None
-        for entry in parser.entries:
-            if "*" in entry.useragents:
-                star = star or entry
-            elif entry.applies_to(ROBOTS_AGENT):
-                return entry
-        return parser.default_entry or star
+        self._stdlib: urllib.robotparser.RobotFileParser | None = None
+        if text is None:
+            return
+        groups = _parse_groups(text)
+        token = ROBOTS_AGENT.lower()
+        selected = [rules for agents, rules in groups if token in agents]
+        if not selected:
+            selected = [rules for agents, rules in groups if "*" in agents]
+        for rules in selected:
+            for key, value in rules:
+                if key == "crawl-delay":
+                    with contextlib.suppress(ValueError):
+                        self.crawl_delay = max(self.crawl_delay or 0.0, float(value))
+                elif value:  # an empty "Disallow:" allows everything and adds no rule
+                    pattern = value if value.startswith(("/", "*")) else "/" + value
+                    self.rules.append(_Rule(unquote(pattern), key == "allow"))
+        self._stdlib = urllib.robotparser.RobotFileParser()
+        self._stdlib.parse(text.splitlines())
 
     def can_fetch(self, url: str) -> bool:
         if self.disallow_all:
             return False
         if self.allow_all:
             return True
+        if self._stdlib is not None and not self._stdlib.can_fetch(ROBOTS_AGENT, url):
+            return False
         parts = urlsplit(url)
         path = unquote(parts.path or "/") + (f"?{unquote(parts.query)}" if parts.query else "")
         best: _Rule | None = None
