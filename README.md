@@ -183,7 +183,7 @@ Firestore is accessed **only over the REST API** (`google.oauth2.service_account
 
 ## Schedule
 
-`.github/workflows/crawl.yml` runs every 2 hours (minute 17, UTC) and on manual dispatch (inputs: sources,
+`.github/workflows/crawl.yml` runs every 12 hours (04:17 and 16:17 UTC) and on manual dispatch (inputs: sources,
 max articles, since hours). It uses the organisation secret `FIREBASE_SERVICE_ACCOUNT`, never runs two crawls
 concurrently and stops starting new articles after 95 minutes. `.github/workflows/ci.yml` runs ruff (lint +
 format) and pytest on Python 3.11 and 3.13 for every push and pull request.

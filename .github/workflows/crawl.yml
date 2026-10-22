@@ -2,8 +2,9 @@ name: Crawl comments
 
 on:
   schedule:
-    # every 2 hours (UTC), at minute 17 to avoid the top-of-the-hour rush
-    - cron: "17 */2 * * *"
+    # every 12 hours at 04:17 and 16:17 UTC (05:17 / 17:17 Berlin in winter);
+    # analysis runs about an hour later. Minute 17 avoids the top-of-the-hour rush.
+    - cron: "17 4,16 * * *"
   workflow_dispatch:
     inputs:
       sources:
