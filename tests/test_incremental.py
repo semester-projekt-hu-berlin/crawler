@@ -4,8 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from crawler.models import ArticleRef, Comment, FetchResult
-from crawler.pipeline import RunOptions, SourceRunner, comments_to_store, priority, revisit_due
-from crawler.sources.base import IncrementalPager, Source
+from crawler.pipeline import RunOptions, SourceRunner, StreamRunner, comments_to_store, priority, revisit_due
+from crawler.sources.base import IncrementalPager, Source, StreamItem, StreamSource
 from crawler.sources.blick import Blick
 from crawler.sources.derstandard import DerStandard
 from crawler.sources.taz import Taz
@@ -251,3 +251,57 @@ def test_unchanged_revisit_sends_no_writes_and_changed_one_sends_only_new():
     assert stats.comments_new == 1 and stats.comments_existing == 0
     assert store.write_count - before == 2  # one comment insert + one article update
     assert article["commentCount"] == 3 and article["knownCommentCount"] == 3
+
+
+# ------------------------------------------------------------------ stream sources
+
+
+class FakeStream(StreamSource):
+    id = "stream"
+    name = "Stream"
+    domain = "stream.example"
+    country = "DE"
+
+    def __init__(self, batches):
+        super().__init__(http=None)
+        self.batches = batches
+        self.windows = []
+
+    def fetch_since(self, since, until, max_items):
+        self.windows.append(since)
+        out = []
+        for c in self.batches.pop(0):
+            ref = self.day_article("https://stream.example/local", "Stream", c.published_at, [])
+            out.append(StreamItem(ref, c))
+        return out
+
+
+def test_stream_runner_inserts_once_and_never_resends_overlap():
+    now = datetime.now(UTC)
+    a = _c("a", now - timedelta(minutes=30))
+    b = _c("b", now - timedelta(minutes=5))
+    c = _c("c", now + timedelta(minutes=1))
+    store = FakeStore()
+    src = FakeStream([[a, b], [b, c]])
+    opts = RunOptions(since_hours=48)
+
+    s1 = StreamRunner(src, store, opts, last_crawl_at=None).run()
+    assert s1.comments_new == 2 and s1.articles_new == 1
+    article = next(v for k, v in store.docs.items() if k.startswith("articles/"))
+    assert article["commentCount"] == 2 and article["sourceType"] == "social"
+
+    before = store.write_count
+    s2 = StreamRunner(src, store, opts, last_crawl_at=now).run()
+    # window starts at the previous crawl minus the overlap
+    assert src.windows[1] == now - src.overlap
+    assert s2.comments_new == 1 and s2.comments_existing == 1
+    assert store.write_count - before == 2  # comment c + article update; b was filtered by a read
+    assert article["commentCount"] == 3
+
+
+def test_stream_runner_drops_duplicates_within_a_run():
+    now = datetime.now(UTC)
+    a = _c("a", now - timedelta(minutes=3))
+    store = FakeStore()
+    stats = StreamRunner(FakeStream([[a, a]]), store, RunOptions(), last_crawl_at=None).run()
+    assert stats.error is None and stats.comments_new == 1

@@ -22,6 +22,7 @@ from crawler.http import PoliteSession, RobotsDisallowed
 from crawler.logging_setup import log_event
 from crawler.models import ArticleRef, Comment, FetchResult
 from crawler.sources import SOURCES, Source
+from crawler.sources.base import StreamItem, StreamSource
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +62,8 @@ class SourceStats:
 @dataclass
 class RunOptions:
     max_articles: int = 500
+    # Stream sources: max posts/comments per source and run.
+    max_items: int = 3000
     since_hours: float = 48.0
     dry_run: bool = False
     time_budget_s: float | None = None
@@ -183,7 +186,12 @@ def comment_doc(c: Comment, article_id: str, crawled_at: datetime) -> dict[str, 
 
 
 def article_doc(
-    ref: ArticleRef, crawled_at: datetime, comment_count: int, result: FetchResult, last_comment_at: datetime | None
+    ref: ArticleRef,
+    crawled_at: datetime,
+    comment_count: int,
+    result: FetchResult,
+    last_comment_at: datetime | None,
+    source_type: str = "news",
 ) -> dict[str, Any]:
     doc = {
         "url": ref.url,
@@ -196,6 +204,7 @@ def article_doc(
         "topics": ref.topics[:20],
         "lastCommentAt": last_comment_at,
         "knownCommentCount": result.reported_total,
+        "sourceType": source_type,
     }
     if result.thread_id:
         doc["commentThreadId"] = result.thread_id
@@ -268,7 +277,8 @@ class SourceRunner:
     def store_result(self, result: FetchResult, crawled_at: datetime) -> Write | None:
         """Write new comments; return the article write if anything changed (None in dry-run)."""
         ref = result.article
-        to_write = comments_to_store(result)
+        # One batch must not contain the same document twice (paged APIs can repeat items).
+        to_write = list({c.id: c for c in comments_to_store(result)}.values())
         if result.unchanged:
             self.stats.articles_unchanged += 1
         if not result.complete:
@@ -307,7 +317,9 @@ class SourceRunner:
             # (existing > 0 only if an earlier run stored comments but died before the article write.)
             return self.store.create_write(
                 f"articles/{ref.id}",
-                article_doc(ref, crawled_at, len(inserted) + existing, result, last_comment_at),
+                article_doc(
+                    ref, crawled_at, len(inserted) + existing, result, last_comment_at, self.source.source_type
+                ),
                 tag=("article", True),
             )
         # Known article: write only if something changed.
@@ -401,8 +413,115 @@ class SourceRunner:
         return self.stats
 
 
-def sync_sources(store: Firestore, sources: list[Source]) -> list[Source]:
-    """Create/refresh ``sources/{id}`` docs and return the enabled sources."""
+class StreamRunner:
+    """Runs a :class:`StreamSource`: everything since the previous run, grouped by (pseudo-)article."""
+
+    def __init__(self, source: StreamSource, store: Firestore | None, opts: RunOptions,
+                 last_crawl_at: datetime | None) -> None:  # fmt: skip
+        self.source = source
+        self.store = store
+        self.opts = opts
+        self.last_crawl_at = last_crawl_at
+        self.stats = SourceStats(source.id)
+        self.log = logging.getLogger(f"crawler.run.{source.id}")
+
+    def _ev(self, event: str, level: int = logging.INFO, **fields: Any) -> None:
+        log_event(self.log, event, level, source=self.source.id, **fields)
+
+    def window(self, now: datetime) -> datetime:
+        since = now - timedelta(hours=self.opts.since_hours)
+        if self.last_crawl_at is not None:
+            since = max(since, self.last_crawl_at - self.source.overlap)
+        return since
+
+    def drop_stored(self, items: list[StreamItem]) -> list[StreamItem]:
+        """Items from the overlap window may already be stored: check with a read, never re-insert."""
+        if self.store is None or self.last_crawl_at is None:
+            return items
+        old = [i for i in items if i.comment.published_at <= self.last_crawl_at]
+        if not old:
+            return items
+        found = self.store.batch_get([f"comments/{i.comment.id}" for i in old])
+        stored = {path.split("/", 1)[1] for path, doc in found.items() if doc is not None}
+        self.stats.comments_existing += len(stored)
+        return [i for i in items if i.comment.id not in stored]
+
+    def run(self) -> SourceStats:
+        t0 = time.monotonic()
+        try:
+            now = datetime.now(UTC)
+            since = self.window(now)
+            items = self.source.fetch_since(since, now, self.opts.max_items)
+            self.stats.comments_seen = len(items)
+            self._ev("source.start", since=since.isoformat(timespec="seconds"), items=len(items))
+            self.store_items(self.drop_stored(items), now)
+        except Exception as exc:  # noqa: BLE001
+            self.stats.error = f"{type(exc).__name__}: {exc}"[:300]
+            self._ev("source.failed", logging.ERROR, error=self.stats.error)
+        self.stats.duration_s = time.monotonic() - t0
+        self._ev("source.done", **{k: v for k, v in asdict(self.stats).items() if k != "source"})
+        return self.stats
+
+    def store_items(self, items: list[StreamItem], crawled_at: datetime) -> None:
+        by_article: dict[str, tuple[ArticleRef, list[Comment]]] = {}
+        seen: set[str] = set()
+        for item in items:
+            # Paged feeds can return an item twice when new items shift the pages.
+            if item.comment.id in seen:
+                continue
+            seen.add(item.comment.id)
+            ref, comments = by_article.setdefault(item.article.id, (item.article, []))
+            comments.append(item.comment)
+        self.stats.articles_crawled = len(by_article)
+        if self.store is None:
+            for ref, comments in by_article.values():
+                if self.opts.out is not None:
+                    for c in comments:
+                        row = comment_doc(c, ref.id, crawled_at) | {"id": c.id, "articleUrl": ref.url}
+                        self.opts.out.write(json.dumps(row, default=str, ensure_ascii=False) + "\n")
+                self.stats.comments_new += len(comments)
+            return
+        existing = self.store.batch_get([f"articles/{aid}" for aid in by_article])
+        article_writes: list[Write] = []
+        for aid, (ref, comments) in by_article.items():
+            res = self.store.batch_write(
+                [self.store.create_write(f"comments/{c.id}", comment_doc(c, aid, crawled_at), tag=c) for c in comments]
+            )
+            inserted = [w.tag for w in res.ok]
+            self.stats.comments_new += len(inserted)
+            self.stats.comments_existing += len(res.already_exists)
+            self.stats.comments_failed += len(res.failed)
+            if res.failed:
+                self._ev("comments.write_failed", logging.ERROR, article=aid, failed=len(res.failed))
+            doc = existing.get(f"articles/{aid}")
+            if not inserted and doc is not None:
+                continue
+            newest = max(c.published_at for c in comments)
+            if doc is None:
+                # already_exists > 0 only if an earlier run stored comments but failed before the article write
+                fake = FetchResult(ref, comments, None)
+                count = len(inserted) + len(res.already_exists)
+                article_writes.append(self.store.create_write(
+                    f"articles/{aid}",
+                    article_doc(ref, crawled_at, count, fake, newest, self.source.source_type),
+                    tag=("article", True),
+                ))  # fmt: skip
+            else:
+                newest = max(c.published_at for c in inserted)
+                last = max(t for t in (doc.get("lastCommentAt"), newest) if t is not None)
+                article_writes.append(self.store.update_write(
+                    f"articles/{aid}", {"lastCommentCrawlAt": crawled_at, "lastCommentAt": last},
+                    increments={"commentCount": len(inserted)}, tag=("article", False),
+                ))  # fmt: skip
+        if article_writes:
+            res = self.store.batch_write(article_writes)
+            self.stats.articles_new += sum(1 for w in res.ok if w.tag == ("article", True))
+
+
+def sync_sources(
+    store: Firestore, sources: list[Source | StreamSource]
+) -> tuple[list[Source | StreamSource], dict[str, dict[str, Any] | None]]:
+    """Create/refresh ``sources/{id}`` docs; return the enabled sources and the docs."""
     docs = store.batch_get([f"sources/{s.id}" for s in sources])
     writes: list[Write] = []
     enabled: list[Source] = []
@@ -425,7 +544,7 @@ def sync_sources(store: Firestore, sources: list[Source]) -> list[Source]:
                 log_event(log, "source.disabled", source=s.id)
     if writes:
         store.batch_write(writes)
-    return enabled
+    return enabled, docs
 
 
 def finalize(store: Firestore, stats: list[SourceStats], all_source_count: int) -> None:
@@ -455,12 +574,19 @@ def run(source_ids: list[str], opts: RunOptions, store: Firestore | None) -> Run
     summary = RunSummary(started_at=datetime.now(UTC).isoformat(timespec="seconds"), dry_run=opts.dry_run)
     http = PoliteSession()
     sources = [SOURCES[sid](http) for sid in source_ids]
+    docs: dict[str, dict[str, Any] | None] = {}
     if store is not None:
-        sources = sync_sources(store, sources)
+        sources, docs = sync_sources(store, sources)
     deadline = time.monotonic() + opts.time_budget_s if opts.time_budget_s else None
-    runners = [SourceRunner(s, store, opts, deadline) for s in sources]
+    runners: list[SourceRunner | StreamRunner] = []
+    for s in sources:
+        if isinstance(s, StreamSource):
+            doc = docs.get(f"sources/{s.id}") or {}
+            runners.append(StreamRunner(s, store, opts, doc.get("lastCrawlAt")))
+        else:
+            runners.append(SourceRunner(s, store, opts, deadline))
     # One worker per source: sources live on different hosts, each host is still rate limited.
-    with ThreadPoolExecutor(max_workers=max(1, min(4, len(runners)))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(runners)))) as pool:
         summary.sources = list(pool.map(lambda r: r.run(), runners))
     if store is not None:
         finalize(store, summary.sources, len(SOURCES))

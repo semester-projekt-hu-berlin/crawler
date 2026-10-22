@@ -11,11 +11,20 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 
 ## Sources
 
-| id | site | country | articles from | comments from | volume |
-|---|---|---|---|---|---|
-| `derstandard` | [DER STANDARD](https://www.derstandard.at) | AT | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at/forum-serve-graphql` | very high (often hundreds per article) |
-| `taz` | [taz](https://taz.de) | DE | news sitemap `/sitemap-google-news.xml` | server-rendered comment list in the article HTML | low to medium |
-| `blick` | [Blick](https://www.blick.ch) (German edition) | CH | news sitemap `/news.xml` | public Viafoura comments API `livecomments.viafoura.co` | medium |
+| id | site | type | country | leaning (rough) | articles / posts from | comments from | est. comments per day |
+|---|---|---|---|---|---|---|---|
+| `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | VOL_tagesschau |
+| `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | VOL_tichyseinblick |
+| `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | VOL_freitag |
+| `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | VOL_taz |
+| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | VOL_derstandard |
+| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | VOL_blick |
+| `mastodon` | [norden.social](https://norden.social), [troet.cafe](https://troet.cafe) | social | DE | tends left | public local timelines (API) | the posts themselves | VOL_mastodon |
+| `bluesky` | [Bluesky](https://bsky.app), German-language sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | VOL_bluesky |
+
+The leaning column is a rough orientation for interpreting results (commenters are not the editorial line);
+the mix was chosen to cover the spectrum. Estimates are per day at the 12-hour schedule (see
+"Firestore cost" below).
 
 ### Why each source is allowed and how its comments are fetched
 
@@ -55,6 +64,56 @@ applies. `python -m crawler check-robots` prints the live decision for every end
   resolve it to a content container (`/contentcontainer/id`), then read the comments with replies
   (`limit=100`, paged via `starting_from`). French-language pages (`/fr/`) are skipped. Upvotes = likes.
 
+**tagesschau** (`meta.tagesschau.de`, ARD's official comment platform for tagesschau.de)
+
+- `meta.tagesschau.de/robots.txt`, group `*`: `Disallow: */comment/` (single-comment permalinks), `/comment/reply/`,
+  `/user/...`, `/search/`, `/admin/`, `/node/add/`. The front page (`/?page=N`) and the discussion pages
+  (`/id/<n>/<slug>?page=N`) are allowed. Reading needs no login.
+- How: the front page lists discussions (newest first) with opening time **and comment count**, so unchanged
+  discussions are skipped without any request. A discussion page holds ~15 threads (oldest first) with nested
+  replies; we page with `?page=N`. The parent of a reply comes from its "@name" parent link (the link text, a
+  user name, is removed). No like counts (`upvotes = null`).
+
+**Tichys Einblick** (`tichyseinblick.de`)
+
+- `www.tichyseinblick.de/robots.txt`, group `*`: no rule covers `/wp-json/`. The WordPress REST API is public.
+- How: `GET /wp-json/wp/v2/comments?after=…&per_page=100&_fields=id,post,parent,date_gmt,content` returns the
+  newest approved comments of the whole site, so one run needs a handful of requests instead of one per article.
+  `_fields` makes the server omit author name, avatar and author id. Article title/link/date come from
+  `/wp-json/wp/v2/posts?include=…`. Comments are pre-moderated and released with their original timestamp, so
+  the source re-reads a 12-hour overlap and drops already stored comments with a Firestore read (never a write).
+  Article URL = WordPress shortlink `https://www.tichyseinblick.de/?p=<id>`.
+
+**der Freitag** (`freitag.de`)
+
+- `www.freitag.de/robots.txt`, group `*`: only `Disallow: /acl_users/session/` and
+  `/acl_users/credentials_cookie_auth/` (login). Sitemaps `/sitemap.xml` and `/@@google-news-rss` are listed.
+- How: the article page itself loads `<article>/@comments` (Plone REST API, JSON, anonymous `view_comments`).
+  We read `comment_id`, `in_reply_to`, `creation_date`, `text`; `author_*` fields are ignored. `items_total`
+  is the count for unchanged-skipping. The news sitemap has day-only dates, so `publishedAt` is midnight.
+
+**Mastodon** (`norden.social`, `troet.cafe`)
+
+- robots.txt of both instances, group `*`: only `/media_proxy/`, `/interact/` and
+  `/api/v1/instance/domain_blocks` are disallowed. `GET /api/v2/instance` reports
+  `timelines_access.live_feeds.local: "public"`, i.e. the operators publish the local timeline to logged-out
+  visitors. Instance rules cover user behaviour, nothing forbids reading. API limit 300 requests / 5 min.
+- How: `/api/v1/timelines/public?local=true&limit=40`, paged back with `max_id` until the previous run. Kept:
+  public, `language = de`, no boosts, no bots, and only accounts that have **not** opted out of indexing
+  (`noindex = false` and `indexable != false`); on norden.social that is roughly a quarter of the posts. Mentions
+  are removed from the text. Posts are grouped into one pseudo-article per instance and day (see SCHEMA.md).
+
+**Bluesky** (`api.bsky.app`)
+
+- `api.bsky.app/robots.txt`: "Crawling the public parts of the API is allowed. HTTP 429 ("backoff") status codes
+  are used for rate-limiting. Up to a handful concurrent requests should be ok." (`User-agent: * Allow: /`).
+  We send one request at a time, every 1.5 s at most.
+- How: German Bluesky has ~100 posts per minute, far more than needed, so each run takes a **time-spread
+  sample**: the time since the last run is split into 1-hour windows and the newest 100 posts of each window are
+  read (`searchPosts?q=die&lang=de&sort=latest&since=…&until=…`; the search needs a term, "die" is the most
+  frequent German word). Authors with the `!no-unauthenticated` label (opted out of logged-out visibility) are
+  skipped. Timestamp = server `indexedAt`. Mention facets are cut out. No handles, DIDs or display names.
+
 ### Rejected sources
 
 | site | reason |
@@ -69,7 +128,20 @@ applies. `python -m crawler check-robots` prints the live decision for every end
 | 20min.ch | `Disallow: /*comment/` for all user agents. |
 | krone.at | `Disallow: /forum/*`. |
 | telepolis.de | `Disallow: /forum/`. |
-| focus.de, n-tv.de, t-online.de | No public comment section on article pages (no comment markup and no comment requests). |
+| focus.de | Article pages have a comment button, but the comments load only after the consent/JS flow; no public, documented endpoint could be identified, so not used. |
+| n-tv.de, t-online.de | No public comment section on article pages (no comment markup and no comment requests). |
+| fr.de, merkur.de, tz.de (Ippen) | robots.txt group `*`: `Disallow: /` (only `/ueber-uns/` and `/advertorials/` allowed). |
+| stern.de | Bot protection (403 for non-browser clients). |
+| sueddeutsche.de, waz.de (Funke) | Comments are served by `*.engagently.com`; its robots.txt is unreachable (connection closed), which RFC 9309 treats as complete disallow. |
+| ksta.de | Public comment API (`community-api.kdm.koeln`, robots.txt 404) works, but very few comments per article; not worth an adapter for now (easy to add). |
+| cicero.de | Drupal site whose comments we could not find in the pages without login; no endpoint. |
+| jungewelt.de | `Disallow: /comment.php` and `/leserbrief/`. |
+| kicker.de | `Disallow: /news/fussball*` (and the other sports) plus `/kickerapi*`. |
+| transfermarkt.de | robots.txt allows everything, but the site answers non-browser clients with a bot challenge (HTTP 202 interstitial). Not circumvented. |
+| jungefreiheit.de | WordPress REST comments require login (401). |
+| social.tchncs.de | robots.txt `User-agent: * Disallow: /`. |
+| chaos.social | Connection reset from our network; not reachable. |
+| abgeordnetenwatch.de | The API (CC0 1.0) covers politicians, mandates, polls and votes but **no citizen questions**; the questions exist only as web pages. Useful for the analysis team (entity list of politicians), not as a comment source. |
 
 ## Data protection and ethics
 
@@ -78,6 +150,8 @@ applies. `python -m crawler check-robots` prints the live decision for every end
   (`@Name:` at the start of a reply and inline `@username`; e-mail addresses are kept).
 - Only what the analysis needs is stored: text, timestamps, thread structure (`parentId`), upvotes.
 - Only public content: no login, no cookies, no paywall circumvention, no bot-protection circumvention.
+- Social posts are treated exactly like comments: text, timestamp, reply structure. Opt-outs are honoured
+  (Mastodon `noindex`/`indexable`, Bluesky `!no-unauthenticated`), bots and non-public posts are skipped.
 - Comment text is internal to the pipeline (see SCHEMA.md); the public API only serves aggregates.
 - **Politeness:** robots.txt is checked before *every* request (with `urllib.robotparser` plus our own RFC 9309 wildcard evaluation; both must allow), including redirect
   targets. At most one request every 1.5 s per host (more if `Crawl-delay` says so), one worker per source,

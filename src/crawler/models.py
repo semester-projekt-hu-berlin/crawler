@@ -30,6 +30,8 @@ class ArticleRef:
     known_comment_count: int | None = None
     # Source-native id of the comment thread (Blick: Viafoura container id), saves a page fetch.
     comment_thread_id: str | None = None
+    # Comment count shown on a listing page during discovery (saves the article fetch if unchanged).
+    listed_comment_count: int | None = None
 
     @property
     def id(self) -> str:

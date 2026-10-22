@@ -56,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--since-hours", type=float, default=48.0, help="discover articles published in the last H hours (default: 48)"
     )
     run.add_argument(
+        "--max-items",
+        type=int,
+        default=3000,
+        help="stream sources (Tichys Einblick, Mastodon, Bluesky): max items per source and run (default: 3000)",
+    )
+    run.add_argument(
         "--time-budget-minutes", type=float, default=None, help="stop starting new articles after this many minutes"
     )
     run.add_argument("--dry-run", action="store_true", help="do not touch Firestore")
@@ -79,6 +85,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     try:
         opts = RunOptions(
             max_articles=args.max_articles,
+            max_items=args.max_items,
             since_hours=args.since_hours,
             dry_run=args.dry_run,
             time_budget_s=args.time_budget_minutes * 60 if args.time_budget_minutes else None,
@@ -89,6 +96,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             "run.start",
             sources=",".join(args.sources),
             max_articles=args.max_articles,
+            max_items=args.max_items,
             since_hours=args.since_hours,
             dry_run=args.dry_run,
             user_agent=USER_AGENT,
@@ -118,7 +126,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_sources() -> int:
     for sid, cls in SOURCES.items():
-        print(f"{sid:12} {cls.name:14} {cls.domain:16} {cls.country}  {cls.news_sitemap}")
+        feed = getattr(cls, "news_sitemap", "(stream)")
+        print(f"{sid:15} {cls.source_type:7} {cls.name:40} {cls.domain:28} {cls.country}  {feed}")
     return 0
 
 
@@ -135,6 +144,15 @@ def cmd_check_robots() -> int:
         "https://www.blick.ch/schweiz/abc/abc1234",
         "https://tyrion.viafoura.co/v3/sections/sites/www.blick.ch",
         "https://livecomments.viafoura.co/v4/livecomments/x/contentcontainer/id?container_id=y",
+        "https://meta.tagesschau.de/?page=1",
+        "https://meta.tagesschau.de/id/176269/tote-nach-angriff-auf-flughafen-in-saudi-arabien?page=1",
+        "https://www.freitag.de/@@google-news-rss",
+        "https://www.freitag.de/autoren/der-freitag/beispiel/@comments",
+        "https://www.tichyseinblick.de/wp-json/wp/v2/comments?per_page=100",
+        "https://www.tichyseinblick.de/wp-json/wp/v2/posts?include=1",
+        "https://norden.social/api/v1/timelines/public?local=true",
+        "https://troet.cafe/api/v1/timelines/public?local=true",
+        "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=die&lang=de",
     ]
     robots = RobotsCache()
     ok = True

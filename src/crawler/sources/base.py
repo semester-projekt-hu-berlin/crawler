@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from crawler.discovery import parse_news_sitemap
 from crawler.http import PoliteSession
-from crawler.models import ArticleRef, FetchResult
+from crawler.ids import BERLIN, berlin_day
+from crawler.models import ArticleRef, Comment, FetchResult
 
 
 class Source(ABC):
@@ -24,13 +26,15 @@ class Source(ABC):
     domain: ClassVar[str]
     country: ClassVar[str]
     news_sitemap: ClassVar[str]
+    # "news" (comments under articles) or "social" (public posts, grouped into pseudo-articles).
+    source_type: ClassVar[str] = "news"
 
     def __init__(self, http: PoliteSession) -> None:
         self.http = http
         self.log = logging.getLogger(f"crawler.sources.{self.id}")
 
     def source_doc(self) -> dict:
-        return {"name": self.name, "domain": self.domain, "country": self.country}
+        return {"name": self.name, "domain": self.domain, "country": self.country, "sourceType": self.source_type}
 
     @abstractmethod
     def canonical_url(self, url: str) -> str | None:
@@ -101,3 +105,54 @@ class IncrementalPager:
         if self.expected_new is not None:
             return self.found_new >= self.expected_new
         return not any(t >= self.since for t in published)
+
+
+@dataclass
+class StreamItem:
+    """One comment/post of a stream source together with the (pseudo-)article it belongs to."""
+
+    article: ArticleRef
+    comment: Comment
+
+
+class StreamSource(ABC):
+    """A source that lists new comments/posts directly (newest first), without visiting articles.
+
+    Examples: a site-wide comment feed (WordPress REST API) or public social media timelines.
+    Each run asks for everything published since the previous run (minus a small overlap),
+    so there are no per-article revisits at all. Social posts are grouped into one
+    pseudo-article per day (and instance), see ``day_article``.
+    """
+
+    id: ClassVar[str]
+    name: ClassVar[str]
+    domain: ClassVar[str]
+    country: ClassVar[str]
+    source_type: ClassVar[str] = "social"
+    # Items published up to this long before the previous run are fetched again (late
+    # moderation, clock skew). Stored ones are filtered with a Firestore read, never re-sent.
+    overlap: ClassVar[timedelta] = timedelta(minutes=10)
+
+    def __init__(self, http: PoliteSession) -> None:
+        self.http = http
+        self.log = logging.getLogger(f"crawler.sources.{self.id}")
+
+    def source_doc(self) -> dict:
+        return {"name": self.name, "domain": self.domain, "country": self.country, "sourceType": self.source_type}
+
+    @abstractmethod
+    def fetch_since(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
+        """All items published in ``[since, until]`` (at most ``max_items``)."""
+
+    def day_article(self, base_url: str, title: str, published: datetime, topics: list[str]) -> ArticleRef:
+        """Pseudo-article grouping all posts of one Berlin day (``?day=YYYY-MM-DD``)."""
+        day = berlin_day(published)
+        start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=BERLIN).astimezone(UTC)
+        sep = "&" if "?" in base_url else "?"
+        return ArticleRef(
+            url=f"{base_url}{sep}day={day}",
+            source_id=self.id,
+            title=f"{title} · {day}",
+            published_at=start,
+            topics=topics,
+        )

@@ -112,7 +112,9 @@ class PoliteSession:
             try:
                 wire = int(resp.raw.tell())
             except (AttributeError, TypeError, ValueError):
-                wire = len(resp.content)
+                wire = 0
+            if wire <= 0:  # urllib3 cannot always tell (e.g. chunked without compression)
+                wire = int(resp.headers.get("Content-Length") or len(resp.content))
             with self._lock:
                 self.bytes_received += wire
             log_event(log, "http.get", logging.DEBUG, url=full_url, status=resp.status_code, bytes=wire)
