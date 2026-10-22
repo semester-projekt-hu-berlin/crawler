@@ -26,6 +26,9 @@ from crawler.sources.base import StreamItem, StreamSource
 
 log = logging.getLogger(__name__)
 
+# Pre-moderated comments can appear this long after their timestamp (see comments_to_store).
+LATE_WINDOW = timedelta(hours=3)
+
 # Article fields the revisit logic needs (the query reads only these).
 ARTICLE_STATE_FIELDS = [
     "url",
@@ -144,28 +147,32 @@ def priority(ref: ArticleRef, now: datetime) -> datetime:
     return max(times) if times else now
 
 
-def comments_to_store(result: FetchResult) -> list[Comment]:
-    """Comments that are not stored yet and must be written.
+def comments_to_store(result: FetchResult) -> tuple[list[Comment], list[Comment]]:
+    """Split fetched comments into ``(write, check)``.
 
-    First crawl: all. Revisit: those published after the previous crawl minus a small
-    overlap. If the full list was fetched but fewer new comments turned up than the
-    source's count grew (comments released late from moderation keep their original
-    timestamp), all fetched comments are sent; the ``exists: false`` precondition
-    then skips the stored ones.
+    ``write``: not stored yet for sure. First crawl: all. Revisit: those published after
+    the previous crawl minus a small overlap.
+
+    ``check``: comments that may have been released late from pre-moderation (they keep
+    their original timestamp). Only when the complete list was fetched and fewer new
+    comments turned up than the source's count grew: the comments of the LATE_WINDOW
+    before the cutoff. The caller checks them with a Firestore read and writes only the
+    missing ones, so stored comments are never re-sent.
     """
     ref = result.article
     since = ref.since(COMMENT_OVERLAP)
     if result.unchanged:
-        return []
+        return [], []
     if since is None:
-        return result.comments
+        return result.comments, []
     fresh = [c for c in result.comments if c.published_at >= since]
     expected = ref.expected_new(result.reported_total)
     if result.complete and expected is not None:
         found = sum(1 for c in fresh if ref.is_new_comment(c.published_at))
         if found < expected:
-            return result.comments
-    return fresh
+            late = [c for c in result.comments if since - LATE_WINDOW <= c.published_at < since]
+            return fresh, late
+    return fresh, []
 
 
 def comment_doc(c: Comment, article_id: str, crawled_at: datetime) -> dict[str, Any]:
@@ -277,8 +284,14 @@ class SourceRunner:
     def store_result(self, result: FetchResult, crawled_at: datetime) -> Write | None:
         """Write new comments; return the article write if anything changed (None in dry-run)."""
         ref = result.article
+        fresh, check = comments_to_store(result)
+        if check and self.store is not None:
+            found = self.store.batch_get([f"comments/{c.id}" for c in check])
+            missing = [c for c in check if found.get(f"comments/{c.id}") is None]
+            self.stats.comments_existing += len(check) - len(missing)
+            fresh = fresh + missing
         # One batch must not contain the same document twice (paged APIs can repeat items).
-        to_write = list({c.id: c for c in comments_to_store(result)}.values())
+        to_write = list({c.id: c for c in fresh}.values())
         if result.unchanged:
             self.stats.articles_unchanged += 1
         if not result.complete:

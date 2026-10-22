@@ -235,17 +235,18 @@ fields the revisit logic needs are selected). Candidates are ordered by recent a
 
 1. *Count check.* derStandard (`GetForumInfo.totalPostingCount`) and Blick (Viafoura
    `total_visible_content`) expose the total in a small request. If it equals `knownCommentCount`, the revisit
-   ends there: no thread pages, no Firestore writes. taz has no count endpoint, so the article page is fetched
-   (all comments are in it) and compared.
+   ends there: no thread pages, no Firestore writes. tagesschau gets the count from the front page listing
+   (no request at all), der Freitag from `@comments`. taz has no count endpoint, so the article page is fetched
+   (all comments are in it) and compared; revisits use the stored slug URL and skip the permalink redirect.
 2. *Newest first, stop early.* Both APIs return threads newest first (derStandard `sortOrder: ByTime`, Viafoura
    `sorted_by=newest`). Replies to old threads can appear on any page, so paging stops as soon as as many
    comments newer than `lastCommentCrawlAt` were seen as the count grew (without a stored count: at the first
    page that holds only older comments). Blick revisits also use smaller pages and skip the article page
    (thread id stored).
 3. *Only new comments are sent.* Comments published before `lastCommentCrawlAt - 10 min` are never sent to
-   Firestore. Exception: if the complete list was fetched and fewer new comments turned up than the count grew
-   (comments released late from moderation keep their original timestamp), all fetched comments are sent once;
-   the `exists: false` precondition skips stored ones.
+   Firestore. Exception: pre-moderated comments (derStandard, Blick, taz) are released later with their original
+   timestamp. If the complete list was fetched and fewer new comments turned up than the count grew, the comments
+   of the 3 hours before the cutoff are checked with a Firestore **read** and only the missing ones are written.
 4. *Article doc only on change.* The article is updated only if comments were inserted, the source count
    changed or the thread id was learned. Unchanged articles cost zero writes (their `lastCommentCrawlAt` stays
    as is; the daily slot bounds them to one cheap count check per day).

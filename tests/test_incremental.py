@@ -67,7 +67,7 @@ def test_priority_prefers_recent_comment_activity():
 def test_first_crawl_writes_everything():
     ref = _ref(1)
     comments = [_c("a", MORNING - timedelta(hours=5)), _c("b", MORNING)]
-    assert comments_to_store(FetchResult(ref, comments, 2)) == comments
+    assert comments_to_store(FetchResult(ref, comments, 2)) == (comments, [])
 
 
 def test_revisit_writes_only_comments_after_last_crawl_minus_overlap():
@@ -76,22 +76,40 @@ def test_revisit_writes_only_comments_after_last_crawl_minus_overlap():
     old = _c("old", last - timedelta(minutes=30))
     overlap = _c("overlap", last - timedelta(minutes=5))
     new = _c("new", last + timedelta(minutes=1))
-    assert comments_to_store(FetchResult(ref, [old, overlap, new], 4)) == [overlap, new]
+    assert comments_to_store(FetchResult(ref, [old, overlap, new], 4)) == ([overlap, new], [])
 
 
 def test_unchanged_writes_nothing():
     ref = _ref(10, 2, known_comment_count=3)
-    assert comments_to_store(FetchResult(ref, [], 3, complete=False, unchanged=True)) == []
+    assert comments_to_store(FetchResult(ref, [], 3, complete=False, unchanged=True)) == ([], [])
 
 
-def test_late_moderated_comments_trigger_full_insert_when_complete():
+def test_late_moderated_comments_are_checked_not_resent():
     ref = _ref(10, 2, known_comment_count=2)
     last = ref.last_comment_crawl_at
     # count grew by 2, but only one comment is newer than the last crawl
-    comments = [_c("late", last - timedelta(hours=3)), _c("x", last - timedelta(hours=4)), _c("new", MORNING)]
-    assert comments_to_store(FetchResult(ref, comments, 4, complete=True)) == comments
+    late = _c("late", last - timedelta(hours=1))
+    ancient = _c("x", last - timedelta(hours=5))
+    new = _c("new", MORNING)
+    assert comments_to_store(FetchResult(ref, [late, ancient, new], 4, complete=True)) == ([new], [late])
     # partial fetch (early stop) never falls back
-    assert comments_to_store(FetchResult(ref, comments, 4, complete=False)) == [comments[2]]
+    assert comments_to_store(FetchResult(ref, [late, ancient, new], 4, complete=False)) == ([new], [])
+
+
+def test_late_comment_check_uses_reads_and_writes_only_missing():
+    now = datetime.now(UTC)
+    stored = _c("stored", now - timedelta(hours=3, minutes=30))
+    late = _c("late", now - timedelta(hours=2, minutes=30))
+    store = FakeStore()
+    src = CountingSource([([stored], 1), ([stored, late, _c("n", now + timedelta(minutes=1))], 3)])
+    SourceRunner(src, store, RunOptions(), None).run()
+    article = next(v for k, v in store.docs.items() if k.startswith("articles/"))
+    article["lastCommentCrawlAt"] = now - timedelta(hours=2)
+    before = store.write_count
+    stats = SourceRunner(src, store, RunOptions(), None).run()
+    assert stats.comments_new == 2  # "late" (found by the read check) and "n"
+    assert stats.comments_existing == 1  # "stored": read, not written
+    assert store.write_count - before == 3  # two inserts + article update
 
 
 # ------------------------------------------------------------------ pager

@@ -64,7 +64,11 @@ class Taz(Source):
         return f"https://taz.de/!{m.group(1)}/" if m else None
 
     def fetch(self, ref: ArticleRef) -> FetchResult:
-        resp = self.http.get(ref.url)
+        # The permalink /!<id>/ answers with a redirect to the slug URL; revisits go straight to
+        # the stored slug URL (commentThreadId), which saves one request per revisit.
+        resp = self.http.get(ref.comment_thread_id or ref.url)
+        page_url = getattr(resp, "url", None)
+        thread_id = page_url if isinstance(page_url, str) and page_url.startswith("https://taz.de/") else None
         soup = BeautifulSoup(resp.text, "lxml")
         if not ref.known:
             meta = parse_page_meta(soup)
@@ -75,4 +79,4 @@ class Taz(Source):
         # All comments are in the page anyway (no cheaper count endpoint, and taz ignores
         # If-Modified-Since); the pipeline filters out already stored ones before writing.
         unchanged = ref.known and ref.known_comment_count == len(comments)
-        return FetchResult(ref, [] if unchanged else comments, len(comments), unchanged=unchanged)
+        return FetchResult(ref, [] if unchanged else comments, len(comments), unchanged=unchanged, thread_id=thread_id)
