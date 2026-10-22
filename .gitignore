@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets: never commit service account keys or env files
+.env
+.env.*
+*.pem
+*.key
+sa.json
+*service-account*.json
+*serviceaccount*.json
+*-sa.json
+*credentials*.json
+*firebase-adminsdk*.json
+secrets/
+
+# Local output
+out/
+*.jsonl
