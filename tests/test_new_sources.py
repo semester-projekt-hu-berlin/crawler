@@ -165,12 +165,12 @@ class _Http:
 def test_bluesky_samples_hourly_windows():
     http = _Http()
     until = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
-    Bluesky(http).fetch_since(until - timedelta(hours=12), until, max_items=3000)
+    Bluesky(http).sample(until - timedelta(hours=12), until, max_items=3000)
     assert len(http.calls) == 12
     assert http.calls[0]["until"] == "2026-10-22T12:00:00Z" and http.calls[0]["since"] == "2026-10-22T11:00:00Z"
     assert all(c["lang"] == "de" for c in http.calls)
     http = _Http()
-    Bluesky(http).fetch_since(until - timedelta(hours=12), until, max_items=300)
+    Bluesky(http).sample(until - timedelta(hours=12), until, max_items=300)
     assert len(http.calls) == 3
 
 
@@ -245,3 +245,49 @@ def test_parse_rss():
     assert a.url == "https://www.cicero.de/innenpolitik/ein-artikel-ueber-x" and a.title == "A & B"
     assert a.published_at == datetime(2026, 10, 21, 12, 17, 17, tzinfo=UTC) and a.keywords == ["Innenpolitik"]
     assert b.published_at == datetime(2026, 10, 22, 12, 0, tzinfo=UTC) and b.keywords == ["Inland", "Migration"]
+
+
+def _bsky_post(i, minute):
+    return {"uri": f"at://x/{i}", "indexedAt": f"2026-10-22T11:{minute:02d}:00.000Z", "likeCount": 0,
+            "author": {"labels": []}, "record": {"text": f"Post {i} über Merz"}}  # fmt: skip
+
+
+class _SearchHttp:
+    def __init__(self):
+        self.queries = []
+
+    def get_json(self, url, params=None, **kw):
+        self.queries.append(params["q"])
+        if params["q"] == "Merz":
+            return {"posts": [_bsky_post(1, 1), _bsky_post(2, 2)]}
+        if params["q"] == "CDU":
+            return {"posts": [_bsky_post(2, 2), _bsky_post(3, 3)]}  # post 2 again
+        return {"posts": []}
+
+
+def test_bluesky_targeted_search_dedupes_and_groups_by_query(monkeypatch):
+    import crawler.sources.bluesky as bs
+
+    monkeypatch.setattr(bs, "STATIC_QUERIES", ("Merz", "CDU"))
+    http = _SearchHttp()
+    b = Bluesky(http)
+    until = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
+    items = b.fetch_since(until - timedelta(hours=12), until, max_items=1000)
+    uris = [i.comment.native_id for i in items]
+    assert uris.count("at://x/2") == 1 and {"at://x/1", "at://x/3"} <= set(uris)
+    titles = {i.comment.native_id: i.article.title for i in items}
+    assert "Merz" in titles["at://x/1"] and "CDU" in titles["at://x/3"]
+    assert http.queries[:2] == ["Merz", "CDU"]
+
+
+def test_bluesky_query_rotation_uses_entities_first(monkeypatch):
+    import crawler.sources.bluesky as bs
+
+    monkeypatch.setattr(bs, "QUERIES_PER_RUN", 3)
+    b = Bluesky(http=None)
+    b.entity_queries = ["Friedrich Merz", "merz"]
+    q1 = b.queries(datetime(2026, 10, 22, 4, 17, tzinfo=UTC))
+    q2 = b.queries(datetime(2026, 10, 22, 16, 17, tzinfo=UTC))
+    assert len(q1) == 3 and q1 != q2  # morning and evening run use different slices
+    all_q = [q.lower() for q in b.queries.__self__.entity_queries]
+    assert all_q.count("merz") == 1

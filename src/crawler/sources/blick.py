@@ -78,6 +78,7 @@ class Blick(Source):
     name = "Blick"
     domain = "blick.ch"
     country = "CH"
+    topic = "general"
     news_sitemap = "https://www.blick.ch/news.xml"
 
     def __init__(self, http):  # noqa: ANN001

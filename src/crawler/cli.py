@@ -15,7 +15,7 @@ import os
 import sys
 
 from crawler import __version__
-from crawler.config import USER_AGENT, source_limits
+from crawler.config import DISABLED_SOURCES, USER_AGENT, source_limits
 from crawler.logging_setup import log_event, setup_logging
 from crawler.sources import SOURCES
 
@@ -24,7 +24,8 @@ log = logging.getLogger("crawler")
 
 def _parse_sources(value: str) -> list[str]:
     if value.strip().lower() == "all":
-        return list(SOURCES)
+        # "all" leaves out sources switched off via CRAWLER_DISABLED_SOURCES
+        return [sid for sid in SOURCES if sid not in DISABLED_SOURCES]
     ids = [v.strip().lower() for v in value.split(",") if v.strip()]
     unknown = [i for i in ids if i not in SOURCES]
     if unknown:

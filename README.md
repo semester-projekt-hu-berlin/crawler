@@ -13,16 +13,16 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 
 | id | site | type | country | leaning (rough) | articles / posts from | comments from | est. comments per day |
 |---|---|---|---|---|---|---|---|
-| `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | ~750 (≈5 discussions/day × 100–200) |
+| `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | ~400 (≈4 discussions/day, open for about a day) |
 | `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | ~950 |
 | `cicero` | [Cicero](https://www.cicero.de) | news | DE | conservative-liberal | RSS `/rss.xml` | comment list in the article HTML | ~250 |
 | `achgut` | [Achse des Guten](https://www.achgut.com) | news | DE | right-libertarian | RSS `/rss` | reader letters in the article HTML | ~150 |
 | `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | ~20 |
 | `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | ~300 |
-| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ~4,500 (capped; uncapped ~15,000–20,000) |
-| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ~1,400 (capped; uncapped ~3,000) |
+| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ≤300 (capped; uncapped ~15,000–20,000) |
+| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ≤150 (capped; uncapped ~3,000) |
 | `mastodon` | [norden.social](https://norden.social), [troet.cafe](https://troet.cafe) | social | DE | tends left | public local timelines (API) | the posts themselves | ~250 (after opt-out filter) |
-| `bluesky` | [Bluesky](https://bsky.app), German-language sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~2,400 (sample: 2 runs × 12 windows × 100) |
+| `bluesky` | [Bluesky](https://bsky.app), German-language searches + sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~4,000 (cap 2,000/run: targeted searches + sample) |
 
 The leaning column is a rough orientation for interpreting results (commenters are not the editorial line);
 the mix was chosen to cover the spectrum. Estimates are per day at the 12-hour schedule (see
@@ -339,10 +339,12 @@ not focus on and drowns the German sources. derStandard and Blick are therefore 
 
 | source | `max_new_articles_per_run` | `max_comments_per_run` | selection of new articles |
 |---|---|---|---|
-| `derstandard` | 10 | 2,500 | Inland, International, Wirtschaft and Sport first (section RSS feeds), among those the most active forums (posting count from `GetForumInfo`, fetched for the newest 40 candidates and reused by the crawl), then by recency |
-| `blick` | 15 | 800 | Politik, Schweiz, Ausland, Wirtschaft, Sport first (URL path), then by recency |
+| `derstandard` | 2 | 150 (strict) | only stories about Germany, the EU or the USA (title filter); International, Wirtschaft and Web first (section RSS feeds), among those the most active forums, then by recency |
+| `blick` | 2 | 75 (strict) | Politik, Schweiz, Ausland, Wirtschaft, Sport first (URL path), then by recency |
 
-- The caps only limit **new** articles. Articles already being tracked are revisited without limit, and every
+- `strict` (derStandard, Blick): the comment budget also stops revisits of tracked articles, so the daily
+  maximum holds. Both sources can be switched off completely with `CRAWLER_DISABLED_SOURCES=derstandard,blick`.
+- Otherwise the caps only limit **new** articles. Articles already being tracked are revisited without limit, and every
   kept article is crawled completely (all threads, newest first), so the data stays coherent instead of
   containing truncated threads.
 - `max_comments_per_run` is a budget: once this many new comments were stored in a run, no further new article is
@@ -357,11 +359,11 @@ Estimated new comments per day with the caps (2 runs a day):
 
 | source | per day |
 |---|---|
-| derstandard | ~4,000–5,000 (20 articles/day, the most active ones, ~200–250 comments each over their lifetime) |
-| blick | ~1,200–1,500 (30 articles/day, ~40–50 comments each) |
-| bluesky | ~2,400 (sample) |
+| derstandard | ≤300 |
+| blick | ≤150 |
+| bluesky | ~4,000 (cap 2,000/run) |
 | tichyseinblick | ~950 |
-| tagesschau | ~750 |
+| tagesschau | ~400 |
 | taz | ~300 |
 | mastodon | ~250 |
 | cicero | ~250 (cap 600/run) |

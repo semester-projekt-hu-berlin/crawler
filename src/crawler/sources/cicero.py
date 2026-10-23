@@ -63,6 +63,7 @@ class Cicero(Source):
     name = "Cicero"
     domain = "cicero.de"
     country = "DE"
+    topic = "politics"
     news_sitemap = "https://www.cicero.de/rss.xml"
     feed_type = "rss"
 

@@ -47,6 +47,7 @@ class Achgut(Source):
     name = "Achse des Guten"
     domain = "achgut.com"
     country = "DE"
+    topic = "politics"
     news_sitemap = "https://www.achgut.com/rss"
     feed_type = "rss"
 

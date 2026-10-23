@@ -57,6 +57,7 @@ class Taz(Source):
     name = "taz"
     domain = "taz.de"
     country = "DE"
+    topic = "politics"
     news_sitemap = "https://taz.de/sitemap-google-news.xml"
 
     def canonical_url(self, url: str) -> str | None:

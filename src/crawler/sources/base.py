@@ -30,13 +30,21 @@ class Source(ABC):
     feed_type: ClassVar[str] = "sitemap"
     # "news" (comments under articles) or "social" (public posts, grouped into pseudo-articles).
     source_type: ClassVar[str] = "news"
+    # "politics", "tech", "tv" or "general"
+    topic: ClassVar[str] = "general"
 
     def __init__(self, http: PoliteSession) -> None:
         self.http = http
         self.log = logging.getLogger(f"crawler.sources.{self.id}")
 
     def source_doc(self) -> dict:
-        return {"name": self.name, "domain": self.domain, "country": self.country, "sourceType": self.source_type}
+        return {
+            "name": self.name,
+            "domain": self.domain,
+            "country": self.country,
+            "sourceType": self.source_type,
+            "topic": self.topic,
+        }
 
     @abstractmethod
     def canonical_url(self, url: str) -> str | None:
@@ -137,6 +145,7 @@ class StreamSource(ABC):
     domain: ClassVar[str]
     country: ClassVar[str]
     source_type: ClassVar[str] = "social"
+    topic: ClassVar[str] = "general"
     # Items published up to this long before the previous run are fetched again (late
     # moderation, clock skew). Stored ones are filtered with a Firestore read, never re-sent.
     overlap: ClassVar[timedelta] = timedelta(minutes=10)
@@ -146,7 +155,16 @@ class StreamSource(ABC):
         self.log = logging.getLogger(f"crawler.sources.{self.id}")
 
     def source_doc(self) -> dict:
-        return {"name": self.name, "domain": self.domain, "country": self.country, "sourceType": self.source_type}
+        return {
+            "name": self.name,
+            "domain": self.domain,
+            "country": self.country,
+            "sourceType": self.source_type,
+            "topic": self.topic,
+        }
+
+    def prepare(self, store) -> None:  # noqa: ANN001, B027 - optional hook
+        """Called once per run with the Firestore client (None in dry runs) before ``fetch_since``."""
 
     @abstractmethod
     def fetch_since(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:

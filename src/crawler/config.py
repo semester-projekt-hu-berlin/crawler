@@ -44,14 +44,21 @@ FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)")
 #                             articles already being tracked are not limited, so threads stay complete)
 #   max_comments_per_run:     once this many new comments were stored in a run, no further
 #                             *new* articles are started (the current article is always finished)
+#   strict:                   1 = the comment budget also stops revisits of tracked articles
 SOURCE_LIMITS: dict[str, dict[str, int]] = {
-    "derstandard": {"max_new_articles_per_run": 10, "max_comments_per_run": 2500},
-    "blick": {"max_new_articles_per_run": 15, "max_comments_per_run": 800},
+    # Austria/Switzerland kept small on purpose (German focus): ~300/day and ~150/day.
+    "derstandard": {"max_new_articles_per_run": 2, "max_comments_per_run": 150, "strict": 1},
+    "blick": {"max_new_articles_per_run": 2, "max_comments_per_run": 75, "strict": 1},
     # small sources, capped only as a safety net for the Firestore budget
     "cicero": {"max_comments_per_run": 600},
     "achgut": {"max_comments_per_run": 400},
+    # stream sources: max posts per run (Bluesky: targeted searches + sample, ~4,000/day)
+    "bluesky": {"max_comments_per_run": 2000},
 }
-LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run")
+LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run", "strict")
+
+# Sources switched off entirely, e.g. CRAWLER_DISABLED_SOURCES=derstandard,blick
+DISABLED_SOURCES = {s.strip().lower() for s in os.environ.get("CRAWLER_DISABLED_SOURCES", "").split(",") if s.strip()}
 
 
 def source_limits(overrides: list[str] | None = None) -> dict[str, dict[str, int]]:

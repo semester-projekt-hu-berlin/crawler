@@ -18,8 +18,8 @@ NOW = datetime.now(UTC)
 
 def test_defaults_cap_only_selected_sources():
     limits = source_limits([])
-    assert set(limits) == {"derstandard", "blick", "cicero", "achgut"} == set(SOURCE_LIMITS)
-    assert not {"tagesschau", "taz", "tichyseinblick", "freitag", "mastodon", "bluesky"} & set(limits)
+    assert set(limits) == {"derstandard", "blick", "cicero", "achgut", "bluesky"} == set(SOURCE_LIMITS)
+    assert not {"tagesschau", "taz", "tichyseinblick", "freitag", "mastodon"} & set(limits)
     assert all(v > 0 for vals in limits.values() for v in vals.values())
 
 
@@ -28,7 +28,7 @@ def test_cli_and_env_overrides(monkeypatch):
     limits = source_limits(
         ["derstandard.max_comments_per_run=3000", "blick=off", "derstandard.max_new_articles_per_run=0"]
     )
-    assert limits["derstandard"] == {"max_comments_per_run": 3000}
+    assert limits["derstandard"] == {"max_comments_per_run": 3000, "strict": 1}
     assert "blick" not in limits
     assert limits["taz"] == {"max_comments_per_run": 50}
     with pytest.raises(ValueError):
@@ -110,7 +110,7 @@ class _DsHttp:
         self.forum_calls = 0
 
     def get(self, url, **kw):
-        if "/rss/inland" in url:
+        if "/rss/international" in url:
             return _Resp(
                 "".join(f"<link>https://www.derstandard.at/story/{i}/x?ref=rss</link>" for i in self.preferred)
             )
@@ -124,18 +124,21 @@ class _DsHttp:
         return {"data": {"getForumByContextUri": {"id": story, "totalPostingCount": self.counts.get(story, 0)}}}
 
 
-def _ds_ref(i, minutes_ago):
+def _ds_ref(i, minutes_ago, title="Merz trifft von der Leyen in Brüssel"):
     return ArticleRef(
-        f"https://www.derstandard.at/story/{i}", "derstandard", published_at=NOW - timedelta(minutes=minutes_ago)
+        f"https://www.derstandard.at/story/{i}",
+        "derstandard",
+        title=title,
+        published_at=NOW - timedelta(minutes=minutes_ago),
     )
 
 
 def test_derstandard_ranks_priority_sections_then_activity():
     http = _DsHttp(preferred_ids={"1", "2", "3"}, counts={"1": 5, "2": 500, "3": 50, "4": 9999})
     ds = DerStandard(http)
-    refs = [_ds_ref(1, 10), _ds_ref(2, 20), _ds_ref(3, 30), _ds_ref(4, 5)]
+    refs = [_ds_ref(1, 10), _ds_ref(2, 20), _ds_ref(3, 30), _ds_ref(4, 5), _ds_ref(5, 1, "Wiener Gemeinderat tagt")]
     ranked = ds.rank_new(refs, limit=1)
-    assert [r.url[-1] for r in ranked] == ["2", "3", "1", "4"]  # section first, then posting count
+    assert [r.url[-1] for r in ranked] == ["2", "3", "1", "4"]  # Austria-only story 5 dropped; section, then count
     assert http.forum_calls == 3  # only the priority pool (4 x limit) is counted
     # forum info is cached and reused by fetch(): no second GetForumInfo
     assert ds.forum_info(refs[1].url)["totalPostingCount"] == 500 and http.forum_calls == 3
@@ -155,3 +158,25 @@ def test_blick_ranks_priority_sections_first():
         ),
     ]
     assert [r.url for r in b.rank_new(refs, 1)] == ["https://www.blick.ch/a2", "https://www.blick.ch/a1"]
+
+
+def test_strict_budget_also_stops_revisits():
+    store = FakeStore()
+    src = CappedSource(n_new=4, comments_per_article=5)
+    SourceRunner(src, store, RunOptions(), None).run()
+    for path, doc in store.docs.items():
+        if path.startswith("articles/"):
+            doc["lastCommentCrawlAt"] = NOW - timedelta(hours=2)
+    src.per_article = 10  # every article gained comments
+    src.fetched.clear()
+    opts = RunOptions(source_limits={"capped": {"max_comments_per_run": 4, "strict": 1}})
+    SourceRunner(src, store, opts, None).run()
+    assert len(src.fetched) == 1
+
+
+def test_disabled_sources_are_left_out_of_all(monkeypatch):
+    import crawler.cli as cli
+
+    monkeypatch.setattr(cli, "DISABLED_SOURCES", {"derstandard", "blick"})
+    ids = cli._parse_sources("all")
+    assert "derstandard" not in ids and "blick" not in ids and "taz" in ids

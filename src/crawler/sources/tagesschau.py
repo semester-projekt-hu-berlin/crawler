@@ -91,6 +91,7 @@ class Tagesschau(Source):
     name = "tagesschau (meta.tagesschau.de)"
     domain = "meta.tagesschau.de"
     country = "DE"
+    topic = "politics"
     news_sitemap = BASE + "/"
 
     def canonical_url(self, url: str) -> str | None:

@@ -50,6 +50,7 @@ class TichysEinblick(StreamSource):
     name = "Tichys Einblick"
     domain = "tichyseinblick.de"
     country = "DE"
+    topic = "politics"
     source_type = "news"
     overlap: ClassVar[timedelta] = timedelta(hours=12)
 

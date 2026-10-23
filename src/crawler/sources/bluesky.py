@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 from crawler.ids import parse_datetime
 from crawler.models import Comment
@@ -75,19 +76,159 @@ def parse_posts(posts: list[dict[str, Any]], source_id: str = "bluesky") -> list
     return out
 
 
+# Targeted searches: German politics, companies, tech, broadcasters and TV shows (plain words also
+# match hashtags; "#tag" queries are rejected by the API with 400). Extended at run
+# time with the most-mentioned allowlisted entities from Firestore (see ``prepare``).
+STATIC_QUERIES = (
+    "Bundestag",
+    "Bundesregierung",
+    "Koalition",
+    "Merz",
+    "AfD",
+    "SPD",
+    "CDU",
+    "CSU",
+    "Grüne",
+    "Linke",
+    "BSW",
+    "FDP",
+    "Wahl",
+    "Klingbeil",
+    "Söder",
+    "Weidel",
+    "Reiche",
+    "Pistorius",
+    "Bas",
+    "Wadephul",
+    "Dobrindt",
+    "Bundesverfassungsgericht",
+    "Rente",
+    "Bürgergeld",
+    "Migration",
+    "Ukraine",
+    "Trump",
+    "EU",
+    "Volkswagen",
+    "Siemens",
+    "Deutsche Bank",
+    "Telekom",
+    "Lufthansa",
+    "Bahn",
+    "BASF",
+    "SAP",
+    "Bayer",
+    "Mercedes",
+    "BMW",
+    "Tesla",
+    "Amazon",
+    "Google",
+    "Apple",
+    "Meta",
+    "OpenAI",
+    "Microsoft",
+    "Nvidia",
+    "KI",
+    "Tagesschau",
+    "ZDF",
+    "ARD",
+    "RTL",
+    "ProSieben",
+    "Netflix",
+    "Markus Lanz",
+    "Lanz",
+    "Maischberger",
+    "hart aber fair",
+    "Illner",
+    "Miosga",
+    "Tatort",
+    "heute-show",
+    "Böhmermann",
+    "Polizeiruf",
+    "#Bundestag",
+    "#Lanz",
+    "#Maischberger",
+    "#Tatort",
+    "#hartaberfair",
+    "#Illner",
+    "#Miosga",
+)
+QUERIES_PER_RUN = 60
+TARGETED_PAGES = 3  # x 100 posts per query and run (time-based paging)
+TARGETED_SHARE = 0.75  # of max_items; the rest is the time-spread sample
+
+
 class Bluesky(StreamSource):
     id = "bluesky"
-    name = "Bluesky (Stichprobe, deutschsprachig)"
+    name = "Bluesky (deutschsprachig: Stichprobe + Themensuche)"
     domain = "bsky.app"
     country = "DE"
     source_type = "social"
+    topic = "general"
+
+    def __init__(self, http):  # noqa: ANN001
+        super().__init__(http)
+        self.entity_queries: list[str] = []
+
+    def prepare(self, store) -> None:  # noqa: ANN001
+        """Add the most-mentioned allowlisted entities of the last 7 days to the query list."""
+        try:
+            rows = store.run_query(
+                "entities", [("allowlisted", "EQUAL", True)], order_by=[("mentions7d", "DESCENDING")], limit=30,
+                select=["name"],
+            )  # fmt: skip
+            self.entity_queries = [f.get("name") for _, f in rows if f.get("name")]
+        except Exception as exc:  # noqa: BLE001 - best effort
+            self.log.warning("entity query failed: %s", exc)
+
+    def queries(self, now: datetime) -> list[str]:
+        seen: set[str] = set()
+        merged = [q for q in [*self.entity_queries, *STATIC_QUERIES] if not (q.lower() in seen or seen.add(q.lower()))]
+        if len(merged) <= QUERIES_PER_RUN:
+            return merged
+        # rotate: every run (twice a day) starts at a different offset
+        offset = (now.toordinal() * 2 + (now.hour >= 12)) * QUERIES_PER_RUN % len(merged)
+        return (merged + merged)[offset : offset + QUERIES_PER_RUN]
 
     def fetch_since(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
+        items: dict[str, StreamItem] = {}
+        targeted_cap = int(max_items * TARGETED_SHARE)
+        for query in self.queries(until):
+            if len(items) >= targeted_cap:
+                break
+            # Unauthenticated search does not allow cursor paging (403), so page by time:
+            # the next request asks for posts older than the oldest one seen.
+            upper = until
+            for _ in range(TARGETED_PAGES):
+                params = {"q": query, "lang": "de", "sort": "latest", "limit": SAMPLE_PER_WINDOW,
+                          "since": _iso(since), "until": _iso(upper)}  # fmt: skip
+                try:
+                    data = self.http.get_json(API, params=params) or {}
+                except Exception as exc:  # noqa: BLE001 - one failing query must not stop the source
+                    self.log.warning("search failed for %r: %s", query, exc)
+                    break
+                posts = data.get("posts") or []
+                comments = parse_posts(posts, self.id)
+                for c in comments:
+                    if c.native_id not in items and since <= c.published_at <= until:
+                        base = "https://bsky.app/search?" + urlencode({"q": query, "lang": "de"})
+                        ref = self.day_article(base, f"Bluesky · Suche „{query}“", c.published_at, ["Bluesky", query])
+                        items[c.native_id] = StreamItem(ref, c)
+                times = [t for p in posts if (t := parse_datetime(p.get("indexedAt")))]
+                if len(posts) < SAMPLE_PER_WINDOW or not times or min(times) >= upper:
+                    break
+                upper = min(times)
+        for item in self.sample(since, until, max_items - len(items)):
+            items.setdefault(item.comment.native_id, item)
+        return list(items.values())[:max_items]
+
+    def sample(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
+        """Time-spread sample: the newest posts of each hour (all topics)."""
         windows: list[tuple[datetime, datetime]] = []
         end = until
         while end > since and len(windows) * SAMPLE_PER_WINDOW < max_items:
             windows.append((max(since, end - WINDOW), end))
             end -= WINDOW
+        per_window = max(1, min(SAMPLE_PER_WINDOW, max_items // max(1, len(windows))))
         items: list[StreamItem] = []
         for start, stop in windows:
             data = self.http.get_json(
@@ -96,7 +237,7 @@ class Bluesky(StreamSource):
                     "q": QUERY,
                     "lang": "de",
                     "sort": "latest",
-                    "limit": SAMPLE_PER_WINDOW,
+                    "limit": per_window,
                     "since": _iso(start),
                     "until": _iso(stop),
                 },

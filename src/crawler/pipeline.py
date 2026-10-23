@@ -419,7 +419,8 @@ class SourceRunner:
                     self._ev("budget.stop", logging.WARNING, done=i - 1, of=len(refs))
                     break
                 max_comments = self.limits.get("max_comments_per_run")
-                if max_comments and not ref.known and self.stats.comments_new >= max_comments:
+                strict = bool(self.limits.get("strict"))
+                if max_comments and (strict or not ref.known) and self.stats.comments_new >= max_comments:
                     self.stats.articles_capped += 1
                     continue
                 crawled_at = datetime.now(UTC)
@@ -505,6 +506,9 @@ class StreamRunner:
             now = datetime.now(UTC)
             since = self.window(now)
             max_items = self.opts.max_items
+            cap = self.opts.source_limits.get(self.source.id, {}).get("max_comments_per_run")
+            if cap:
+                max_items = min(max_items, cap)
             budget, store = self.opts.budget, self.store
             if budget and store is not None:
                 if budget.should_stop(store.write_count, store.read_count):
@@ -512,6 +516,8 @@ class StreamRunner:
                     raise BudgetExhausted
                 # roughly one write per item; keep the reserve for the article writes
                 max_items = max(0, min(max_items, budget.writes_left - RESERVE_WRITES - store.write_count))
+            if self.store is not None:
+                self.source.prepare(self.store)
             items = self.source.fetch_since(since, now, max_items)
             self.stats.comments_seen = len(items)
             self._ev("source.start", since=since.isoformat(timespec="seconds"), items=len(items))

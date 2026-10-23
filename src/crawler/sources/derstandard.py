@@ -40,7 +40,13 @@ HASH_THREADS = os.environ.get(
     "DERSTANDARD_HASH_THREADS", "d5a2376ac61344341ffe4dcd17f814dba7ea80fbacfb5806c8d1f9c2072a3fa6"
 )
 # Sections preferred when the source is capped (their RSS feeds tell which stories belong to them).
-PRIORITY_SECTIONS = ("inland", "international", "wirtschaft", "sport")
+PRIORITY_SECTIONS = ("international", "wirtschaft", "web")
+# Only stories about Germany, the EU or the USA are taken (German focus of the project).
+RELEVANT_RE = re.compile(
+    r"\b(Deutschland|deutsch\w*|Berlin|Bundestag|Bundesregierung|Merz|Scholz|AfD|CDU|CSU|SPD|Grüne\w*|FDP|"
+    r"EU|EU-\w+|Europ\w*|Brüssel|von der Leyen|USA|US-\w+|Trump|Washington|Amerika\w*|Midterms?)\b",
+    re.IGNORECASE,
+)
 SECTION_RSS = "https://www.derstandard.at/rss/{}"
 RANK_POOL_FACTOR = 4
 _RSS_STORY_RE = re.compile(r"<link>https://www\.derstandard\.at/story/(\d+)")
@@ -107,6 +113,7 @@ class DerStandard(Source):
     name = "DER STANDARD"
     domain = "derstandard.at"
     country = "AT"
+    topic = "general"
     news_sitemap = "https://www.derstandard.at/sitemaps/news.xml"
 
     def __init__(self, http):  # noqa: ANN001
@@ -137,6 +144,7 @@ class DerStandard(Source):
         ``RANK_POOL_FACTOR * limit`` priority-section candidates (the forum info is cached
         and reused by ``fetch``). The rest follows by recency.
         """
+        refs = [r for r in refs if RELEVANT_RE.search(r.title or "")]
         if not refs:
             return refs
         preferred_ids = self.priority_story_ids()

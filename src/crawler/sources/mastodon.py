@@ -84,6 +84,7 @@ class Mastodon(StreamSource):
     name = "Mastodon (norden.social, troet.cafe)"
     domain = "norden.social, troet.cafe"
     country = "DE"
+    topic = "general"
     source_type = "social"
     instances = INSTANCES
 

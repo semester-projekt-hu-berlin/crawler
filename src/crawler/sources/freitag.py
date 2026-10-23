@@ -42,6 +42,7 @@ class Freitag(Source):
     name = "der Freitag"
     domain = "freitag.de"
     country = "DE"
+    topic = "politics"
     news_sitemap = "https://www.freitag.de/@@google-news-rss"
 
     def canonical_url(self, url: str) -> str | None:
