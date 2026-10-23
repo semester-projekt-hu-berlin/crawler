@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 
-from crawler.config import MAX_RETRIES, MIN_DELAY_PER_HOST, REQUEST_TIMEOUT, USER_AGENT
+from crawler.config import HOST_MIN_DELAY, MAX_RETRIES, MIN_DELAY_PER_HOST, REQUEST_TIMEOUT, USER_AGENT
 from crawler.logging_setup import log_event
 from crawler.robots import RobotsCache
 
@@ -93,7 +93,7 @@ class PoliteSession:
             log_event(log, "http.robots_disallowed", logging.WARNING, url=full_url)
             raise RobotsDisallowed(full_url)
         host = urlsplit(full_url).netloc
-        delay = max(self.min_delay, self.robots.crawl_delay(full_url) or 0.0)
+        delay = max(self.min_delay, HOST_MIN_DELAY.get(host, 0.0), self.robots.crawl_delay(full_url) or 0.0)
         throttle = self._throttle(host)
 
         last_exc: Exception | None = None

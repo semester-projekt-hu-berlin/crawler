@@ -18,12 +18,20 @@ from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
-from crawler.ids import BERLIN, parse_datetime
+from crawler.ids import BERLIN, parse_datetime, sha1_id
 from crawler.models import ArticleRef, Comment
 from crawler.sources.base import StreamItem, StreamSource
 from crawler.text import clean_text, html_to_text
 
 PER_PAGE = 100
+MAX_PAGES = 60
+
+
+def in_sample(comment: Comment, share: float) -> bool:
+    """Deterministic sample by comment id: every run keeps the same comments (overlap-safe)."""
+    if share >= 1.0:
+        return True
+    return int(sha1_id(f"{comment.source_id}:{comment.native_id}")[:8], 16) / 0xFFFFFFFF < share
 
 
 def parse_wp_comments(rows: list[dict[str, Any]], source_id: str = "tichyseinblick") -> list[tuple[int, Comment]]:
@@ -54,6 +62,10 @@ class WordPressComments(StreamSource):
     site: ClassVar[str]
     source_type = "news"
     overlap: ClassVar[timedelta] = timedelta(hours=12)
+    # Busy sites: keep only this share of the comments, chosen by a hash of the comment id. Unlike
+    # "the newest N" this spreads the kept comments over the whole day and all articles, and the
+    # 12 h overlap of the next run selects exactly the same comments again (no extra writes).
+    sample_share: ClassVar[float] = 1.0
 
     @property
     def api(self) -> str:
@@ -64,7 +76,7 @@ class WordPressComments(StreamSource):
         fields = "id,post,parent,date_gmt,content"
         pairs: list[tuple[int, Comment]] = []
         page = 1
-        while len(pairs) < max_items:
+        while len(pairs) < max_items and page <= MAX_PAGES:
             rows = self.http.get_json(
                 f"{self.api}/comments",
                 params={"per_page": PER_PAGE, "page": page, "after": after, "_fields": fields},
@@ -72,7 +84,7 @@ class WordPressComments(StreamSource):
             )
             if not isinstance(rows, list) or not rows:
                 break
-            pairs.extend(parse_wp_comments(rows, self.id))
+            pairs.extend(pc for pc in parse_wp_comments(rows, self.id) if in_sample(pc[1], self.sample_share))
             if len(rows) < PER_PAGE:
                 break
             page += 1
@@ -140,3 +152,41 @@ class Ruhrbarone(WordPressComments):
     country = "DE"
     topic = "politics"
     site = "https://www.ruhrbarone.de"
+
+
+class ApolloNews(WordPressComments):
+    id = "apollo"
+    name = "Apollo News"
+    domain = "apollo-news.net"
+    country = "DE"
+    topic = "politics"
+    site = "https://apollo-news.net"
+    # ~2,000 comments per 12 h (dry run 23 Oct 2026): keep ~10 % (~400/day); hard cap in config.SOURCE_LIMITS.
+    sample_share = 0.10
+
+
+class Overton(WordPressComments):
+    id = "overton"
+    name = "Overton Magazin"
+    domain = "overton-magazin.de"
+    country = "DE"
+    topic = "politics"
+    site = "https://overton-magazin.de"
+
+
+class Appgefahren(WordPressComments):
+    id = "appgefahren"
+    name = "appgefahren.de"
+    domain = "appgefahren.de"
+    country = "DE"
+    topic = "tech"
+    site = "https://www.appgefahren.de"
+
+
+class Lawblog(WordPressComments):
+    id = "lawblog"
+    name = "lawblog (Udo Vetter)"
+    domain = "lawblog.de"
+    country = "DE"
+    topic = "politics"
+    site = "https://www.lawblog.de"

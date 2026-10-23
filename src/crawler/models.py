@@ -64,14 +64,17 @@ class Comment:
     published_at: datetime
     native_parent_id: str | None = None
     upvotes: int | None = None
+    # Namespace for the comment id if it differs from ``source_id``: two sources reading the same
+    # platform (Bluesky search and Jetstream) share ids, so a post is never stored twice.
+    id_source: str | None = None
 
     @property
     def id(self) -> str:
-        return comment_id(self.source_id, self.native_id)
+        return comment_id(self.id_source or self.source_id, self.native_id)
 
     @property
     def parent_id(self) -> str | None:
-        return comment_id(self.source_id, self.native_parent_id) if self.native_parent_id else None
+        return comment_id(self.id_source or self.source_id, self.native_parent_id) if self.native_parent_id else None
 
     @property
     def day(self) -> str:

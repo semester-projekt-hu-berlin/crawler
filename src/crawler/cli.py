@@ -144,6 +144,7 @@ def cmd_sources() -> int:
 
 def cmd_check_robots() -> int:
     from crawler.robots import RobotsCache
+    from crawler.sources.mastodon import INSTANCES as MASTODON_INSTANCES
 
     endpoints = [
         "https://www.derstandard.at/sitemaps/news.xml",
@@ -168,6 +169,27 @@ def cmd_check_robots() -> int:
         "https://www.cicero.de/innenpolitik/ein-artikel?page=1",
         "https://www.achgut.com/rss",
         "https://www.achgut.com/artikel/ein_artikel",
+        *[f"https://{h}/api/v1/timelines/public?local=true" for h in MASTODON_INSTANCES],
+        "https://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post",
+        "https://jetstream1.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post",
+        "https://jetstream1.us-west.bsky.network/subscribe?wantedCollections=app.bsky.feed.post",
+        "https://jetstream2.us-west.bsky.network/subscribe?wantedCollections=app.bsky.feed.post",
+        "https://api.bsky.app/xrpc/app.bsky.actor.getProfiles?actors=did:plc:x",
+        "https://www.iphone-ticker.de/feed/",
+        "https://www.iphone-ticker.de/ein-artikel-289045/",
+        "https://www.iphone-ticker.de/ein-artikel-289045/feed/",
+        "https://www.ifun.de/feed/",
+        "https://www.ifun.de/ein-artikel-293187/feed/",
+        "https://apollo-news.net/wp-json/wp/v2/comments?per_page=100",
+        "https://apollo-news.net/wp-json/wp/v2/posts?include=1",
+        "https://overton-magazin.de/wp-json/wp/v2/comments?per_page=100",
+        "https://www.appgefahren.de/wp-json/wp/v2/comments?per_page=100",
+        "https://www.lawblog.de/wp-json/wp/v2/comments?per_page=100",
+        "https://www.computerbase.de/rss/news.xml",
+        "https://www.computerbase.de/news/gaming/ein-artikel.99971/",
+        "https://www.computerbase.de/forum/threads/ein-thread.2280699/page-2",
+        "https://www.wallstreet-online.de/community",
+        "https://www.wallstreet-online.de/diskussion/1313540-1/biontech",
     ]
     robots = RobotsCache()
     ok = True

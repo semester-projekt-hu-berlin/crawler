@@ -19,6 +19,10 @@ ROBOTS_AGENT = "MeinungspulsBot"
 # Politeness: minimum delay between two requests to the same host (seconds).
 # A larger Crawl-delay from robots.txt always wins.
 MIN_DELAY_PER_HOST = float(os.environ.get("CRAWLER_MIN_DELAY", "1.5"))
+# Hosts that asked for (or deserve) a slower pace than MIN_DELAY_PER_HOST (seconds).
+HOST_MIN_DELAY: dict[str, float] = {
+    "www.appgefahren.de": 5.0,
+}
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 
@@ -46,14 +50,26 @@ FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)")
 #                             *new* articles are started (the current article is always finished)
 #   strict:                   1 = the comment budget also stops revisits of tracked articles
 SOURCE_LIMITS: dict[str, dict[str, int]] = {
-    # Austria/Switzerland kept small on purpose (German focus): ~300/day and ~150/day.
-    "derstandard": {"max_new_articles_per_run": 2, "max_comments_per_run": 150, "strict": 1},
-    "blick": {"max_new_articles_per_run": 2, "max_comments_per_run": 75, "strict": 1},
+    # Austria/Switzerland kept small on purpose (German focus): ~200/day and ~100/day.
+    "derstandard": {"max_new_articles_per_run": 2, "max_comments_per_run": 100, "strict": 1},
+    "blick": {"max_new_articles_per_run": 2, "max_comments_per_run": 50, "strict": 1},
     # small sources, capped only as a safety net for the Firestore budget
     "cicero": {"max_comments_per_run": 600},
     "achgut": {"max_comments_per_run": 400},
-    # stream sources: max posts per run (Bluesky: targeted searches + sample, ~4,000/day)
+    "overton": {"max_comments_per_run": 250},
+    "appgefahren": {"max_comments_per_run": 100},
+    "lawblog": {"max_comments_per_run": 100},
+    # busy sources: Apollo keeps a deterministic ~10 % sample (see ApolloNews.sample_share), ~400/day
+    "apollo": {"max_comments_per_run": 250},
+    # app/tech blogs (PRODUCT entities): most discussed articles first
+    "iphoneticker": {"max_comments_per_run": 300},
+    "ifun": {"max_comments_per_run": 250},
+    "computerbase": {"max_new_articles_per_run": 6, "max_comments_per_run": 200, "strict": 1},
+    "wallstreet": {"max_comments_per_run": 150},
+    # stream sources: max posts per run (Bluesky: targeted searches + sample, ~3,500/day measured)
     "bluesky": {"max_comments_per_run": 2000},
+    # Jetstream live window (JETSTREAM_LIVE_SECONDS, default 300 s) yields ~400-450 German posts
+    "bluesky_jetstream": {"max_comments_per_run": 500},
     "mastodon": {"max_comments_per_run": 600},
 }
 LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run", "strict")

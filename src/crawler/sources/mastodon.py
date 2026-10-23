@@ -40,6 +40,13 @@ INSTANCES = (
     "digitalcourage.social",  # ~55
     "hessen.social",  # ~45
     "dresden.network",  # ~40
+    # added 23 Oct 2026 (robots.txt: only /media_proxy/, /interact/, domain_blocks disallowed)
+    "mastodontech.de",
+    "social.anoxinon.de",
+    "bonn.social",
+    "nerdculture.de",
+    "machteburch.social",
+    "det.social",  # answered 429 once: PoliteSession backs off (Retry-After), then the instance is skipped
 )
 PAGE_LIMIT = 40
 MAX_PAGES = 40
@@ -96,7 +103,7 @@ def parse_statuses(statuses: list[dict[str, Any]], instance: str, source_id: str
 class Mastodon(StreamSource):
     id = "mastodon"
     name = "Mastodon (deutschsprachige Instanzen)"
-    domain = "troet.cafe, mastodon.de, norden.social, … (11 instances)"
+    domain = "troet.cafe, mastodon.de, norden.social, … (17 instances)"
     country = "DE"
     topic = "general"
     source_type = "social"

@@ -19,14 +19,23 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 | `achgut` | [Achse des Guten](https://www.achgut.com) | news | DE | right-libertarian | RSS `/rss` | reader letters in the article HTML | ~150 |
 | `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | ~20 |
 | `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | ~300 |
-| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ≤300 (capped; uncapped ~15,000–20,000) |
-| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ≤150 (capped; uncapped ~3,000) |
-| `mastodon` | 11 German instances (troet.cafe, mastodon.de, norden.social, nrw.social, ruhr.social, …) | social | DE | tends left | public local timelines (API) | the posts themselves | ~800 (cap 600/run, after opt-out filter) |
+| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ≤200 (capped; uncapped ~15,000–20,000) |
+| `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ≤100 (capped; uncapped ~3,000) |
+| `mastodon` | 17 German instances (troet.cafe, mastodon.de, norden.social, nrw.social, ruhr.social, bonn.social, …) | social | DE | tends left | public local timelines (API) | the posts themselves | ~1,100 (cap 600/run, after opt-out filter) |
 | `feddit` | [feddit.org](https://feddit.org) (Lemmy) | social | DE | mixed, tends left | public Lemmy API, local communities | comments under the posts | ~150–200 |
 | `caschy` | [Caschys Blog](https://stadt-bremerhaven.de) | news | DE | tech | RSS `/feed/` | WordPress comments in the article HTML | ~200 |
 | `netzpolitik` | [netzpolitik.org](https://netzpolitik.org) | news | DE | digital rights, left-liberal | WordPress REST | site-wide WordPress REST comment feed | ~10–15 |
 | `ruhrbarone` | [Ruhrbarone](https://www.ruhrbarone.de) | news | DE | regional politics, liberal | WordPress REST | site-wide WordPress REST comment feed | ~10 |
-| `bluesky` | [Bluesky](https://bsky.app), German-language searches + sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~4,000 (cap 2,000/run: targeted searches + sample) |
+| `bluesky` | [Bluesky](https://bsky.app), German-language searches + sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~3,500 (cap 2,000/run: targeted searches + sample) |
+| `bluesky_jetstream` | [Bluesky](https://bsky.app) live firehose (Jetstream) | social | DE | mixed | 5-minute live window per run | German posts (`langs` contains `de`) | ~650 (cap 500/run) |
+| `apollo` | [Apollo News](https://apollo-news.net) | news | DE | right-conservative | WordPress REST | site-wide WordPress REST comment feed, 10 % sample | ~400 (of ~4,000; cap 250/run) |
+| `overton` | [Overton Magazin](https://overton-magazin.de) | news | DE | left / critical of the establishment | WordPress REST | site-wide WordPress REST comment feed | ~260 |
+| `lawblog` | [lawblog](https://www.lawblog.de) (Udo Vetter) | news | DE | law / civil liberties | WordPress REST | site-wide WordPress REST comment feed | ~40 |
+| `iphoneticker` | [iphone-ticker.de](https://www.iphone-ticker.de) | news | DE | tech (Apple, apps) | RSS `/feed/` (with comment counts) | per-article comment feed, article HTML as fallback | ~450 (cap 300/run) |
+| `ifun` | [iFun.de](https://www.ifun.de) | news | DE | tech (Apple, apps) | RSS `/feed/` (with comment counts) | per-article comment feed, article HTML as fallback | ~300 (cap 250/run) |
+| `appgefahren` | [appgefahren.de](https://www.appgefahren.de) | news | DE | tech (apps) | WordPress REST | site-wide WordPress REST comment feed | ~90 |
+| `computerbase` | [ComputerBase](https://www.computerbase.de) | news | DE | tech (hardware, software) | Atom `/rss/news.xml` | the news' forum thread (XenForo HTML) | ~400 (6 new threads, 200 comments per run) |
+| `wallstreet` | [wallstreet-online.de](https://www.wallstreet-online.de) forum | news | DE | finance / retail investors | community start page (most active threads) | newest thread pages (HTML) | ~300 (cap 150/run) |
 
 The leaning column is a rough orientation for interpreting results (commenters are not the editorial line);
 the mix was chosen to cover the spectrum. Estimates are per day at the 12-hour schedule (see
@@ -166,8 +175,71 @@ The unauthenticated search refuses cursor paging (403) and `#hashtag` queries (4
 oldest post seen, ≤3 pages per term). Posts are deduplicated by URI and grouped into one pseudo-article per term
 and day. Cap 2,000 posts per run (75 % searches, 25 % sample).
 
-**Mastodon**: 11 German instances whose local timeline is public (`timelines_access.live_feeds.local =
-public`) and whose robots.txt allows the API. Above the cap of 600 posts per run, every instance is thinned evenly.
+**Mastodon**: 17 German instances whose local timeline is public (`timelines_access.live_feeds.local =
+public`) and whose robots.txt allows the API (added on 23 Oct 2026: mastodontech.de, social.anoxinon.de, bonn.social,
+nerdculture.de, machteburch.social, det.social; their robots.txt only disallows `/media_proxy/`, `/interact/` and the
+domain block list, plus `GPTBot` entirely). det.social sometimes answers 429: the client backs off (Retry-After or
+5/10/20 s) and then skips the instance for this run. swiss.social and wien.rocks are deliberately not used (German
+focus). Above the cap of 600 posts per run, every instance is thinned evenly.
+
+**Bluesky Jetstream** (`jetstream{1,2}.us-{east,west}.bsky.network`)
+
+- robots.txt answers 404 on all four instances (RFC 9309: no restrictions); checked before every connection.
+  Jetstream is Bluesky's official public JSON firehose, no login or key.
+- How: one WebSocket (`/subscribe?wantedCollections=app.bsky.feed.post`) for `JETSTREAM_LIVE_SECONDS` (default 300 s;
+  the full firehose is ~50 events/s, of which ~1.8 German posts/s). Kept: `commit.operation == "create"` with `de` in
+  `record.langs`, up to the cap. A cursor replay of the 12 h between runs would mean downloading the whole firehose
+  for that time, so it is not used; `compress=true` needs Jetstream's zstd dictionary and is not used either.
+- Robust: 15 s connect timeout, 30 s receive timeout (stall), failover to the next instance resuming from the last
+  `time_us` cursor; errors never fail the run (what was collected is kept).
+- Privacy: the DID is only held in memory. Authors are checked in batches of 25 with the public
+  `app.bsky.actor.getProfiles`; authors with `!no-unauthenticated` (opted out of logged-out visibility, ~25–30 % of
+  German posters) are dropped, and so are all posts of a batch whose lookup failed (fail closed). The comment id is
+  `sha1("bluesky:" + post URI)`, the same as for the search source, so a post found by both is stored once.
+  Timestamp = Jetstream receive time (`time_us`), not the client-set `createdAt`. No likes are known (`upvotes = null`).
+
+**Apollo News, Overton Magazin, lawblog, appgefahren** (WordPress REST, same code as Tichys Einblick)
+
+- robots.txt: Apollo disallows only `/trackback/`, `/wp-admin/`, `/wp-content/`, `/wp-includes/`, `xmlrpc.php`,
+  `wp-config.php`; Overton and appgefahren have an empty `Disallow:`; lawblog has `Allow: /` with **`Crawl-delay: 20`**
+  (obeyed). appgefahren is additionally throttled to one request per 5 s (`config.HOST_MIN_DELAY`).
+- Apollo has ~2,000 comments per 12 h. We keep a **deterministic 10 % sample** (`sha1(comment id)`), so the kept
+  comments are spread over the whole day and all articles, and the 12 h overlap of the next run selects exactly the
+  same comments again (no duplicates, no extra writes). `ApolloNews.sample_share`, hard cap 250 per run.
+
+**iphone-ticker.de, iFun.de** (same publisher and WordPress theme)
+
+- robots.txt group `*`: `/wp-admin/`, `/wp-includes/`, login, plugins, a few site paths (ifun: `/amzn/`, `/app/`,
+  `/live/`) and **`Disallow: /*?`** (every URL with a query string, so no `?p=` shortlinks and no comment feed paging).
+  `/feed/`, article pages and `<article>/feed/` are allowed. The REST API is not used (404 / earlier disallowed).
+- How: the main feed `/feed/` gives title, categories (stored as `topics`, useful for PRODUCT entities) and the comment
+  count `slash:comments`; an unchanged count costs no request at all. Otherwise the article's comment feed
+  (`<wfw:commentRss>`, newest 25 comments, ~25 KB) is read; if it does not reach back to the previous crawl (or does
+  not hold all comments on a first crawl), the article page (~250 KB, holds all comments) is parsed instead.
+  `dc:creator`, the item title ("Von: <name>"), `.comment-author` and the reply links are never read; the "Als Antwort
+  auf <name>." sentence of replies is removed and its `#comment-<id>` link becomes `parentId`. New articles are taken
+  most discussed first. `topic` = `tech`.
+
+**ComputerBase** (`computerbase.de`)
+
+- robots.txt group `*`: disallows `/api/`, `/forum/posts/`, `/forum/members/`, `/forum/whats-new/`, `/forum/search/`,
+  `/forum/goto/`, account/conversation pages, `/preisvergleich/`, `/suche/`. `/rss/news.xml`, news pages and
+  `/forum/threads/…/page-N` are allowed.
+- How: news from the Atom feed; the news page links its comment thread (`a.js-thread-link`), which is stored as
+  `commentThreadId`. The thread is read newest page first (20 posts per page, at most 15 pages on a first crawl); a
+  revisit stops at the first page with only older posts. The first post (news teaser) is skipped; quotes (which carry
+  "<name> schrieb:") and `@mentions` are removed, a quote's `data-source="post: <id>"` becomes `parentId`;
+  `data-author` is never read. Capped like derStandard: 6 new threads and 200 comments per run (strict).
+
+**wallstreet-online.de** (forum)
+
+- robots.txt group `*`: disallows ad paths, `/charts/`, `/_print/`, `/_rpc/`, `/userzentrum/`, `/realtime`,
+  `/watchlist/`, `/portfolio/`, `/suche?`, `?q=`, `?orderBy=`. `/community` and `/diskussion/…` are allowed.
+- How: stream source. The community start page lists the most active threads; the first 15 are read (newest page
+  first, a second page only if all 20 posts are new). Posts since the previous run are taken round robin over the
+  threads (cap 150 per run). `data-nick`/`data-userid`, the nick block and quotes ("Zitat von <name>") are never read;
+  the quote's `#beitrag_<id>` link becomes `parentId`. Timestamps are Berlin time (`dd.mm.yy hh:mm:ss`). Source
+  `topic` is `general` (the data contract has no finance topic); articles carry the topic "Börse".
 
 ### Rejected sources
 
@@ -208,13 +280,11 @@ public`) and whose robots.txt allows the API. Above the cap of 600 posts per run
 | YouTube (Data API v3) | Technically ideal (official, free key, comments under tagesschau/ZDF/WELT/BILD videos), but the **YouTube API Developer Policies** forbid our core use: "Do not aggregate API Data except ... relating to YouTube channels that are under the same content owner" (section III.E "Data Aggregation"). Our dashboards aggregate sentiment across channels. In addition, Non-Authorized Data may be stored for at most 30 days and must be refreshed or deleted. The fitting route is the **YouTube Researcher Program** (academic access, own terms) for HU Berlin; not implemented. |
 | reddit.com (r/de, r/Germany) | robots.txt `User-agent: * Disallow: /`; unauthenticated JSON returns 403. Access needs a registered OAuth app approved under Reddit's Responsible Builder Policy / research access (r/reddit4researchers), the Data API terms require deleting content that users delete (periodic re-checks). Not implemented without the owner's decision. |
 | mobilegeeks.de | Now redirects to basicthinking.de/blog, whose robots.txt disallows the WordPress REST API. |
-| iphone-ticker.de | robots.txt disallows `/wp-json/` (and the route is disabled). |
 | uebermedien.de | REST API restricted (401) and disallowed in robots.txt; articles partly paywalled. |
 | bildblog.de | WordPress comments closed since 2009. |
 | dwdl.de | No comment function. |
 | fernsehserien.de | Comments only via a login overlay (JS), no public list. |
 | quotenmeter.de | Comments live in the qtalk.de phpBB forum (robots allows it, Atom feed public), but only ~2 posts a day. |
-| det.social | HTTP 429 (rate limited) on the public timeline. |
 | sueden.social, mstdn.social | Local timeline only for logged-in users. |
 | mastodon.social, mastodon.online | Public local timeline disabled. |
 | abgeordnetenwatch.de | The API (CC0 1.0) covers politicians, mandates, polls and votes but **no citizen questions**; the questions exist only as web pages. Useful for the analysis team (entity list of politicians), not as a comment source. |
@@ -258,6 +328,10 @@ src/crawler/
     tichyseinblick.py WordPress REST comment feed (stream)
     mastodon.py       public local timelines (stream, social)
     bluesky.py        public AppView search sample (stream, social)
+    jetstream.py      Bluesky Jetstream live window (stream, social, WebSocket)
+    appblogs.py       iphone-ticker.de / ifun.de: RSS + comment feeds / article HTML
+    computerbase.py   ComputerBase news threads (XenForo HTML)
+    wallstreet.py     wallstreet-online.de forum (stream, HTML)
   discovery.py      Google News sitemap parser, JSON-LD/breadcrumb article metadata
   http.py           PoliteSession: robots check, per-host throttle, retries
   robots.py         robots.txt: urllib.robotparser + own RFC 9309 group/wildcard evaluation
@@ -370,6 +444,7 @@ summary.
 | `GOOGLE_APPLICATION_CREDENTIALS` | path to the service account key file (local runs) |
 | `FIRESTORE_PROJECT` / `FIRESTORE_DATABASE` | default `meinungspuls-hu` / `(default)` |
 | `CRAWLER_MIN_DELAY` | minimum seconds between requests per host, default `1.5` |
+| `JETSTREAM_LIVE_SECONDS` | length of the Bluesky Jetstream live window per run, default `300` |
 | `CRAWLER_USER_AGENT` | override the User-Agent (keep it descriptive) |
 | `DERSTANDARD_HASH_FORUMINFO`, `DERSTANDARD_HASH_THREADS` | override derStandard persisted query hashes |
 | `LOG_LEVEL`, `LOG_FORMAT` | logging defaults (`INFO`, `text`) |
@@ -386,8 +461,8 @@ not focus on and drowns the German sources. derStandard and Blick are therefore 
 
 | source | `max_new_articles_per_run` | `max_comments_per_run` | selection of new articles |
 |---|---|---|---|
-| `derstandard` | 2 | 150 (strict) | only stories about Germany, the EU or the USA (title filter); International, Wirtschaft and Web first (section RSS feeds), among those the most active forums, then by recency |
-| `blick` | 2 | 75 (strict) | Politik, Schweiz, Ausland, Wirtschaft, Sport first (URL path), then by recency |
+| `derstandard` | 2 | 100 (strict) | only stories about Germany, the EU or the USA (title filter); International, Wirtschaft and Web first (section RSS feeds), among those the most active forums, then by recency |
+| `blick` | 2 | 50 (strict) | Politik, Schweiz, Ausland, Wirtschaft, Sport first (URL path), then by recency |
 
 - `strict` (derStandard, Blick): the comment budget also stops revisits of tracked articles, so the daily
   maximum holds. Both sources can be switched off completely with `CRAWLER_DISABLED_SOURCES=derstandard,blick`.
@@ -402,25 +477,37 @@ not focus on and drowns the German sources. derStandard and Blick are therefore 
   `derstandard=off` all caps of a source) or the env var `CRAWLER_SOURCE_LIMITS` with JSON of the same shape as
   `SOURCE_LIMITS`.
 
-Estimated new comments per day with the caps (2 runs a day):
+Estimated new comments per day with the caps (2 runs a day; new sources measured with dry runs on 23 Oct 2026,
+existing ones from the Firestore counts of 21–23 Oct):
 
-| source | per day |
-|---|---|
-| bluesky | ~4,000 (cap 2,000/run) |
-| tichyseinblick | ~950 |
-| mastodon | ~800 (cap 600/run) |
-| tagesschau | ~400 |
-| taz | ~300 |
-| cicero | ~250 (cap 600/run) |
-| caschy | ~200 |
-| feddit | ~150–200 |
-| achgut | ~150 (cap 400/run) |
-| freitag | ~20 |
-| netzpolitik, ruhrbarone | ~25 |
-| **Germany** | **~7,250** |
-| derstandard (AT) | ≤300 |
-| blick (CH) | ≤150 |
-| **total** | **~7,700**, about 94 % from German sources |
+| source | per day | cap per run |
+|---|---|---|
+| bluesky (search) | ~1,850 (cap allows 4,000) | 2,000 |
+| mastodon (17 instances) | ~1,100 | 600 |
+| tichyseinblick | ~950 | – |
+| bluesky_jetstream | ~650 (5-min window: ~535 German posts, ~330 after the opt-out filter) | 500 |
+| iphoneticker | ~450 | 300 |
+| apollo | ~400 (10 % sample of ~4,000) | 250 |
+| computerbase | ~400 | 6 new threads / 200 (strict) |
+| tagesschau | ~400 | – |
+| ifun | ~300 | 250 |
+| wallstreet | ~300 | 150 |
+| taz | ~300 | – |
+| overton | ~260 | 250 |
+| cicero | ~250 | 600 |
+| caschy | ~200 | – |
+| feddit | ~150–200 | – |
+| achgut | ~150 | 400 |
+| appgefahren | ~90 | 100 |
+| lawblog | ~40 | 100 |
+| freitag, netzpolitik, ruhrbarone | ~45 | – |
+| **Germany** | **~8,300** | |
+| derstandard (AT) | ≤200 | 2 new articles / 100 (strict) |
+| blick (CH) | ≤100 | 2 new articles / 50 (strict) |
+| **total** | **~8,600**, about 96 % from German sources | |
+
+With every cap reached the total stays below ~13,000 comments a day, i.e. ≤ ~14,500 crawler writes (comments plus
+article docs), well inside the crawler's 25,000; the downstream analysis reads each comment once more.
 
 A dry run (`python -m crawler run --sources derstandard,blick --since-hours 24 --dry-run`) on 22 Oct 2026 took
 10 of 168 derStandard candidates (1,953 comments, the first crawl of busy forums) and 15 of 131 Blick
@@ -447,7 +534,7 @@ components, of which the crawler may use 25,000 writes and 60,000 reads (`DAILY_
   day changed), with the document's `updateTime` as precondition and retries on conflict.
 - The run summary shows `crawler_writes_today`, `crawler_reads_today`, `writes_left_today`, `reads_left_today`.
 
-At ~11k comments/day the crawler needs roughly 12–14k writes and 5–10k reads per day, well inside its share.
+At ~8,600 comments/day the crawler needs roughly 9–10k writes and 5–10k reads per day, well inside its share.
 
 ## Schedule
 

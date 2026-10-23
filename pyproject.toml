@@ -15,6 +15,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "tzdata>=2024.1",
+    "websockets>=15",
 ]
 
 [project.optional-dependencies]
