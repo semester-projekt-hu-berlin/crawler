@@ -21,7 +21,11 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 | `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | ~300 |
 | `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ≤300 (capped; uncapped ~15,000–20,000) |
 | `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ≤150 (capped; uncapped ~3,000) |
-| `mastodon` | [norden.social](https://norden.social), [troet.cafe](https://troet.cafe) | social | DE | tends left | public local timelines (API) | the posts themselves | ~250 (after opt-out filter) |
+| `mastodon` | 11 German instances (troet.cafe, mastodon.de, norden.social, nrw.social, ruhr.social, …) | social | DE | tends left | public local timelines (API) | the posts themselves | ~800 (cap 600/run, after opt-out filter) |
+| `feddit` | [feddit.org](https://feddit.org) (Lemmy) | social | DE | mixed, tends left | public Lemmy API, local communities | comments under the posts | ~150–200 |
+| `caschy` | [Caschys Blog](https://stadt-bremerhaven.de) | news | DE | tech | RSS `/feed/` | WordPress comments in the article HTML | ~200 |
+| `netzpolitik` | [netzpolitik.org](https://netzpolitik.org) | news | DE | digital rights, left-liberal | WordPress REST | site-wide WordPress REST comment feed | ~10–15 |
+| `ruhrbarone` | [Ruhrbarone](https://www.ruhrbarone.de) | news | DE | regional politics, liberal | WordPress REST | site-wide WordPress REST comment feed | ~10 |
 | `bluesky` | [Bluesky](https://bsky.app), German-language searches + sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~4,000 (cap 2,000/run: targeted searches + sample) |
 
 The leaning column is a rough orientation for interpreting results (commenters are not the editorial line);
@@ -132,6 +136,39 @@ applies. `python -m crawler check-robots` prints the live decision for every end
   frequent German word). Authors with the `!no-unauthenticated` label (opted out of logged-out visibility) are
   skipped. Timestamp = server `indexedAt`. Mention facets are cut out. No handles, DIDs or display names.
 
+**feddit.org** (Lemmy)
+
+- robots.txt group `*`: only `/login`, `/settings`, `/create_*`, `/inbox`, `/admin`, `/search/` and similar are
+  disallowed; **`Crawl-delay: 60`**, which the crawler obeys (one request per minute, ≤15 per run).
+- How: `/api/v3/comment/list?type_=Local&sort=New` (public, no login), newest first until the previous run.
+  German comments only (`language_id` de, or undetermined with German-looking text); deleted/removed comments and
+  bot accounts are skipped; the `creator` object is never read; fediverse handles are removed from the text.
+  The Lemmy post is the article. `type_=All` was dropped: only 1 of 50 comments was German.
+
+**Caschys Blog** (`stadt-bremerhaven.de`)
+
+- robots.txt group `*`: `Allow: /` plus search, `?replytocom=`, `/*/feed/` (this covers the site-wide comment feed
+  `/comments/feed/`, so we do not use it), embeds and previews. The REST API is switched off (404).
+- How: article list from `/feed/` (not covered by `/*/feed/`), comments from the article HTML (`li.comment`,
+  `div#comment-<n>`, `time`, `.comment-body`, replies in `ul.children`).
+
+**netzpolitik.org, Ruhrbarone** (WordPress REST, same code as Tichys Einblick)
+
+- netzpolitik.org robots.txt disallows `/comments/` and `*/comments/` (WordPress comment feeds); the REST path
+  `/wp-json/wp/v2/comments` is not covered. Ruhrbarone only disallows `/wp-admin/`. Ruhrbarone ignores `_fields`
+  and sends author names; the parser never reads them. Both have only ~10–15 comments a day.
+
+**Bluesky topic searches**: besides the hourly sample, every run searches ~60 rotating German terms
+(`lang=de`, `sort=latest`, since the previous run): the 30 most-mentioned allowlisted entities from Firestore
+(`entities`, by `mentions7d`) plus fixed terms for politics (Bundestag, Merz, AfD, SPD, …), companies (VW,
+Siemens, Telekom, …), tech (KI, OpenAI, Apple, …) and TV (Tagesschau, ZDF, Markus Lanz, Maischberger, Tatort, …).
+The unauthenticated search refuses cursor paging (403) and `#hashtag` queries (400), so it pages by time (`until` =
+oldest post seen, ≤3 pages per term). Posts are deduplicated by URI and grouped into one pseudo-article per term
+and day. Cap 2,000 posts per run (75 % searches, 25 % sample).
+
+**Mastodon**: 11 German instances whose local timeline is public (`timelines_access.live_feeds.local =
+public`) and whose robots.txt allows the API. Above the cap of 600 posts per run, every instance is thinned evenly.
+
 ### Rejected sources
 
 | site | reason |
@@ -170,6 +207,16 @@ applies. `python -m crawler check-robots` prints the live decision for every end
 | nachdenkseiten.de | No comment function; "Leserbriefe" are an editorial selection published as articles. |
 | YouTube (Data API v3) | Technically ideal (official, free key, comments under tagesschau/ZDF/WELT/BILD videos), but the **YouTube API Developer Policies** forbid our core use: "Do not aggregate API Data except ... relating to YouTube channels that are under the same content owner" (section III.E "Data Aggregation"). Our dashboards aggregate sentiment across channels. In addition, Non-Authorized Data may be stored for at most 30 days and must be refreshed or deleted. The fitting route is the **YouTube Researcher Program** (academic access, own terms) for HU Berlin; not implemented. |
 | reddit.com (r/de, r/Germany) | robots.txt `User-agent: * Disallow: /`; unauthenticated JSON returns 403. Access needs a registered OAuth app approved under Reddit's Responsible Builder Policy / research access (r/reddit4researchers), the Data API terms require deleting content that users delete (periodic re-checks). Not implemented without the owner's decision. |
+| mobilegeeks.de | Now redirects to basicthinking.de/blog, whose robots.txt disallows the WordPress REST API. |
+| iphone-ticker.de | robots.txt disallows `/wp-json/` (and the route is disabled). |
+| uebermedien.de | REST API restricted (401) and disallowed in robots.txt; articles partly paywalled. |
+| bildblog.de | WordPress comments closed since 2009. |
+| dwdl.de | No comment function. |
+| fernsehserien.de | Comments only via a login overlay (JS), no public list. |
+| quotenmeter.de | Comments live in the qtalk.de phpBB forum (robots allows it, Atom feed public), but only ~2 posts a day. |
+| det.social | HTTP 429 (rate limited) on the public timeline. |
+| sueden.social, mstdn.social | Local timeline only for logged-in users. |
+| mastodon.social, mastodon.online | Public local timeline disabled. |
 | abgeordnetenwatch.de | The API (CC0 1.0) covers politicians, mandates, polls and votes but **no citizen questions**; the questions exist only as web pages. Useful for the analysis team (entity list of politicians), not as a comment source. |
 
 ## Data protection and ethics
@@ -359,17 +406,21 @@ Estimated new comments per day with the caps (2 runs a day):
 
 | source | per day |
 |---|---|
-| derstandard | ≤300 |
-| blick | ≤150 |
 | bluesky | ~4,000 (cap 2,000/run) |
 | tichyseinblick | ~950 |
+| mastodon | ~800 (cap 600/run) |
 | tagesschau | ~400 |
 | taz | ~300 |
-| mastodon | ~250 |
 | cicero | ~250 (cap 600/run) |
+| caschy | ~200 |
+| feddit | ~150–200 |
 | achgut | ~150 (cap 400/run) |
 | freitag | ~20 |
-| **total** | **~10,400–11,900**, about 60 % from German sources |
+| netzpolitik, ruhrbarone | ~25 |
+| **Germany** | **~7,250** |
+| derstandard (AT) | ≤300 |
+| blick (CH) | ≤150 |
+| **total** | **~7,700**, about 94 % from German sources |
 
 A dry run (`python -m crawler run --sources derstandard,blick --since-hours 24 --dry-run`) on 22 Oct 2026 took
 10 of 168 derStandard candidates (1,953 comments, the first crawl of busy forums) and 15 of 131 Blick

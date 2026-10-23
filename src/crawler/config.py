@@ -54,6 +54,7 @@ SOURCE_LIMITS: dict[str, dict[str, int]] = {
     "achgut": {"max_comments_per_run": 400},
     # stream sources: max posts per run (Bluesky: targeted searches + sample, ~4,000/day)
     "bluesky": {"max_comments_per_run": 2000},
+    "mastodon": {"max_comments_per_run": 600},
 }
 LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run", "strict")
 

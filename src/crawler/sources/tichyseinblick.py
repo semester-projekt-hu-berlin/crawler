@@ -23,7 +23,6 @@ from crawler.models import ArticleRef, Comment
 from crawler.sources.base import StreamItem, StreamSource
 from crawler.text import clean_text, html_to_text
 
-API = "https://www.tichyseinblick.de/wp-json/wp/v2"
 PER_PAGE = 100
 
 
@@ -45,14 +44,20 @@ def parse_wp_comments(rows: list[dict[str, Any]], source_id: str = "tichyseinbli
     return out
 
 
-class TichysEinblick(StreamSource):
-    id = "tichyseinblick"
-    name = "Tichys Einblick"
-    domain = "tichyseinblick.de"
-    country = "DE"
-    topic = "politics"
+class WordPressComments(StreamSource):
+    """Site-wide WordPress REST comment feed (``/wp-json/wp/v2/comments``), newest first.
+
+    Subclasses set ``site`` (``https://host``). ``_fields`` asks the server to leave out author
+    data; sites that ignore ``_fields`` still send it, but the parser never reads it.
+    """
+
+    site: ClassVar[str]
     source_type = "news"
     overlap: ClassVar[timedelta] = timedelta(hours=12)
+
+    @property
+    def api(self) -> str:
+        return f"{self.site}/wp-json/wp/v2"
 
     def fetch_since(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
         after = since.astimezone(BERLIN).replace(tzinfo=None).isoformat(timespec="seconds")
@@ -61,7 +66,7 @@ class TichysEinblick(StreamSource):
         page = 1
         while len(pairs) < max_items:
             rows = self.http.get_json(
-                f"{API}/comments",
+                f"{self.api}/comments",
                 params={"per_page": PER_PAGE, "page": page, "after": after, "_fields": fields},
                 allow_404=True,
             )
@@ -85,22 +90,53 @@ class TichysEinblick(StreamSource):
         for i in range(0, len(ids), PER_PAGE):
             chunk = ids[i : i + PER_PAGE]
             rows = self.http.get_json(
-                f"{API}/posts",
+                f"{self.api}/posts",
                 params={
                     "include": ",".join(map(str, chunk)),
                     "per_page": PER_PAGE,
                     "_fields": "id,link,title,date_gmt",
                 },
             )
-            for row in rows or []:
+            for row in rows if isinstance(rows, list) else []:
                 link = row.get("link") or ""
-                section = [p for p in urlsplit(link).path.split("/") if p][:1]
+                section = [p for p in urlsplit(link).path.split("/") if p][:1] if self.section_from_path else []
                 out[int(row["id"])] = ArticleRef(
                     # WordPress shortlink: stable even if the slug changes.
-                    url=f"https://www.tichyseinblick.de/?p={int(row['id'])}",
+                    url=f"{self.site}/?p={int(row['id'])}",
                     source_id=self.id,
                     title=clean_text(html_to_text((row.get("title") or {}).get("rendered") or "")),
                     published_at=parse_datetime((row.get("date_gmt") or "") + "+00:00"),
                     topics=[s.replace("-", " ").title() for s in section],
                 )
         return out
+
+    # first URL path segment is a section (Tichys Einblick), not a date or slug
+    section_from_path: ClassVar[bool] = False
+
+
+class TichysEinblick(WordPressComments):
+    id = "tichyseinblick"
+    name = "Tichys Einblick"
+    domain = "tichyseinblick.de"
+    country = "DE"
+    topic = "politics"
+    site = "https://www.tichyseinblick.de"
+    section_from_path = True
+
+
+class Netzpolitik(WordPressComments):
+    id = "netzpolitik"
+    name = "netzpolitik.org"
+    domain = "netzpolitik.org"
+    country = "DE"
+    topic = "tech"
+    site = "https://netzpolitik.org"
+
+
+class Ruhrbarone(WordPressComments):
+    id = "ruhrbarone"
+    name = "Ruhrbarone"
+    domain = "ruhrbarone.de"
+    country = "DE"
+    topic = "politics"
+    site = "https://www.ruhrbarone.de"

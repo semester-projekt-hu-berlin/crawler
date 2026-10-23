@@ -26,9 +26,23 @@ from crawler.models import Comment
 from crawler.sources.base import StreamItem, StreamSource
 from crawler.text import clean_text
 
-INSTANCES = ("norden.social", "troet.cafe")
+# German instances whose local timeline is public (``timelines_access.live_feeds.local == "public"``)
+# and whose robots.txt allows the API. Usable posts/day (German, not opted out) measured 23 Oct 2026.
+INSTANCES = (
+    "troet.cafe",  # ~620
+    "mastodon.de",  # ~290
+    "norden.social",  # ~170
+    "nrw.social",  # ~130
+    "ruhr.social",  # ~120
+    "berlin.social",  # ~70
+    "social.cologne",  # ~65
+    "muenchen.social",  # ~55
+    "digitalcourage.social",  # ~55
+    "hessen.social",  # ~45
+    "dresden.network",  # ~40
+)
 PAGE_LIMIT = 40
-MAX_PAGES = 150
+MAX_PAGES = 40
 
 
 def status_text(html: str) -> str:
@@ -81,33 +95,44 @@ def parse_statuses(statuses: list[dict[str, Any]], instance: str, source_id: str
 
 class Mastodon(StreamSource):
     id = "mastodon"
-    name = "Mastodon (norden.social, troet.cafe)"
-    domain = "norden.social, troet.cafe"
+    name = "Mastodon (deutschsprachige Instanzen)"
+    domain = "troet.cafe, mastodon.de, norden.social, … (11 instances)"
     country = "DE"
     topic = "general"
     source_type = "social"
     instances = INSTANCES
 
     def fetch_since(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
-        items: list[StreamItem] = []
-        per_instance = max(1, max_items // len(self.instances))
+        per_instance: dict[str, list[Comment]] = {}
         for instance in self.instances:
             statuses: list[dict[str, Any]] = []
             max_id: str | None = None
-            for _ in range(MAX_PAGES):
-                params = {"local": "true", "limit": PAGE_LIMIT}
-                if max_id:
-                    params["max_id"] = max_id
-                page = self.http.get_json(f"https://{instance}/api/v1/timelines/public", params=params)
-                if not page:
-                    break
-                statuses.extend(page)
-                max_id = str(page[-1]["id"])
-                oldest = parse_datetime(page[-1].get("created_at"))
-                if oldest is None or oldest < since or len(statuses) >= per_instance * 3:
-                    break
-            comments = [c for c in parse_statuses(statuses, instance, self.id) if since <= c.published_at <= until]
-            for c in comments[:per_instance]:
+            try:
+                for _ in range(MAX_PAGES):
+                    params = {"local": "true", "limit": PAGE_LIMIT}
+                    if max_id:
+                        params["max_id"] = max_id
+                    page = self.http.get_json(f"https://{instance}/api/v1/timelines/public", params=params)
+                    if not page:
+                        break
+                    statuses.extend(page)
+                    max_id = str(page[-1]["id"])
+                    oldest = parse_datetime(page[-1].get("created_at"))
+                    if oldest is None or oldest < since:
+                        break
+            except Exception as exc:  # noqa: BLE001 - one unreachable instance must not stop the others
+                self.log.warning("instance %s failed: %s", instance, exc)
+            per_instance[instance] = [
+                c for c in parse_statuses(statuses, instance, self.id) if since <= c.published_at <= until
+            ]
+        total = sum(len(v) for v in per_instance.values())
+        items: list[StreamItem] = []
+        for instance, comments in per_instance.items():
+            # over the cap: thin every instance evenly (keeps the spread over time and instances)
+            if total > max_items > 0:
+                step = total / max_items
+                comments = [comments[int(i * step)] for i in range(int(len(comments) / step))]
+            for c in comments:
                 ref = self.day_article(
                     f"https://{instance}/public/local", f"{instance} · lokale Timeline", c.published_at, ["Mastodon"]
                 )

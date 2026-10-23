@@ -18,9 +18,10 @@ NOW = datetime.now(UTC)
 
 def test_defaults_cap_only_selected_sources():
     limits = source_limits([])
-    assert set(limits) == {"derstandard", "blick", "cicero", "achgut", "bluesky"} == set(SOURCE_LIMITS)
-    assert not {"tagesschau", "taz", "tichyseinblick", "freitag", "mastodon"} & set(limits)
-    assert all(v > 0 for vals in limits.values() for v in vals.values())
+    assert set(limits) == set(SOURCE_LIMITS)
+    assert limits["derstandard"]["strict"] and limits["blick"]["strict"]
+    assert limits["derstandard"]["max_comments_per_run"] <= 150 and limits["blick"]["max_comments_per_run"] <= 75
+    assert not {"tagesschau", "taz", "tichyseinblick", "freitag"} & set(limits)
 
 
 def test_cli_and_env_overrides(monkeypatch):
