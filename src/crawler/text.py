@@ -43,3 +43,17 @@ def clean_text(text: str) -> str:
     text = "\n".join(lines)
     text = _SPACE_BEFORE_PUNCT.sub(r"\1", text)
     return _NEWLINES.sub("\n\n", text).strip()
+
+
+def remove_quotes(fragment) -> list[dict]:  # noqa: ANN001 - bs4 Tag
+    """Remove quoted posts (also nested ones) from a parsed fragment; return their attributes in document order.
+
+    Attributes are read before anything is removed, so the caller can take the quoted post's id
+    from them (a nested quote is gone once its outer quote is removed).
+    """
+    quotes = fragment.select("blockquote")
+    attrs = [dict(q.attrs) for q in quotes]
+    for q in quotes:
+        if q.find_parent("blockquote") is None:
+            q.decompose()
+    return attrs
