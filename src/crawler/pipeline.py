@@ -314,7 +314,7 @@ class SourceRunner:
 
     # -- storing
 
-    def store_result(self, result: FetchResult, crawled_at: datetime) -> Write | None:
+    def store_result(self, result: FetchResult, crawled_at: datetime, room: int | None = None) -> Write | None:
         """Write new comments; return the article write if anything changed (None in dry-run)."""
         ref = result.article
         fresh, check = comments_to_store(result)
@@ -325,6 +325,11 @@ class SourceRunner:
             fresh = fresh + missing
         # One batch must not contain the same document twice (paged APIs can repeat items).
         to_write = list({c.id: c for c in fresh}.values())
+        if room is not None and len(to_write) > room:
+            # Strict cap: keep only the newest comments of this article; the older ones are skipped
+            # for good (lastCommentAt moves past them), so a big thread can't blow the daily cap.
+            to_write = sorted(to_write, key=lambda c: c.published_at, reverse=True)[: max(room, 0)]
+            self.stats.articles_capped += 1
         if result.unchanged:
             self.stats.articles_unchanged += 1
         if not result.complete:
@@ -441,7 +446,8 @@ class SourceRunner:
                     continue
                 self.stats.articles_crawled += 1
                 self.stats.comments_seen += len(result.comments)
-                write = self.store_result(result, crawled_at)
+                room = max_comments - self.stats.comments_new if (max_comments and strict) else None
+                write = self.store_result(result, crawled_at, room)
                 if write is not None:
                     pending.append(write)
                 if len(pending) >= 100:
