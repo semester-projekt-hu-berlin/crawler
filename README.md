@@ -13,33 +13,48 @@ The crawler writes `sources`, `articles`, `comments` and updates `meta/stats` (`
 
 | id | site | type | country | leaning (rough) | articles / posts from | comments from | est. comments per day |
 |---|---|---|---|---|---|---|---|
-| `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | ~400 (≈4 discussions/day, open for about a day) |
-| `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | ~950 |
+| `tagesschau` | [meta.tagesschau.de](https://meta.tagesschau.de) (ARD) | news | DE | public broadcaster, centre | front page listing `/?page=N` | comment list in the discussion page HTML | ~1,000 (≈4 discussions/day, open for about a day) |
+| `br24` | [BR24](https://www.br.de/nachrichten/) (Bayerischer Rundfunk) | news | DE (Bavaria) | public broadcaster, centre | news sitemap `/nachrichten/newsSitemap` | Coral 9 GraphQL (persisted queries) on `comments.br24.de` | 600 (cap; ~2,000 available) |
+| `rbb24` | [rbb24](https://www.rbb24.de) (Rundfunk Berlin-Brandenburg) | news | DE (Berlin/Brandenburg) | public broadcaster, centre | section pages (`/`, `/politik/`, …) | `<article>.commentthreads.jsn` (JSON) | ~150–250 (cap 250) |
+| `tichyseinblick` | [Tichys Einblick](https://www.tichyseinblick.de) | news | DE | conservative / right-liberal | WordPress REST `/wp-json/wp/v2/posts` | site-wide WordPress REST comment feed | ~950 (cap 1,100) |
 | `cicero` | [Cicero](https://www.cicero.de) | news | DE | conservative-liberal | RSS `/rss.xml` | comment list in the article HTML | ~250 |
 | `achgut` | [Achse des Guten](https://www.achgut.com) | news | DE | right-libertarian | RSS `/rss` | reader letters in the article HTML | ~150 |
 | `freitag` | [der Freitag](https://www.freitag.de) | news | DE | left | Google News sitemap `/@@google-news-rss` | Plone REST `…/@comments` | ~20 |
 | `taz` | [taz](https://taz.de) | news | DE | left / green | news sitemap `/sitemap-google-news.xml` | comment list in the article HTML | ~300 |
-| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ≤200 (capped; uncapped ~15,000–20,000) |
+| `derstandard` | [DER STANDARD](https://www.derstandard.at) | news | AT | left-liberal | news sitemap `/sitemaps/news.xml` | public forum GraphQL API `capi.ds.at` | ~200–650 (cap 200 strict; uncapped ~15,000–20,000) |
 | `blick` | [Blick](https://www.blick.ch) (German edition) | news | CH | tabloid, centre | news sitemap `/news.xml` | public Viafoura API `livecomments.viafoura.co` | ≤100 (capped; uncapped ~3,000) |
-| `mastodon` | 17 German instances (troet.cafe, mastodon.de, norden.social, nrw.social, ruhr.social, bonn.social, …) | social | DE | tends left | public local timelines (API) | the posts themselves | ~1,100 (cap 600/run, after opt-out filter) |
+| `mastodon` | 17 German instances (troet.cafe, mastodon.de, norden.social, nrw.social, ruhr.social, bonn.social, …) | social | DE | tends left | public local timelines (API) | the posts themselves | ~700 (cap 800, after opt-out filter) |
 | `feddit` | [feddit.org](https://feddit.org) (Lemmy) | social | DE | mixed, tends left | public Lemmy API, local communities | comments under the posts | ~150–200 |
 | `caschy` | [Caschys Blog](https://stadt-bremerhaven.de) | news | DE | tech | RSS `/feed/` | WordPress comments in the article HTML | ~200 |
 | `netzpolitik` | [netzpolitik.org](https://netzpolitik.org) | news | DE | digital rights, left-liberal | WordPress REST | site-wide WordPress REST comment feed | ~10–15 |
 | `ruhrbarone` | [Ruhrbarone](https://www.ruhrbarone.de) | news | DE | regional politics, liberal | WordPress REST | site-wide WordPress REST comment feed | ~10 |
-| `bluesky` | [Bluesky](https://bsky.app), German-language searches + sample | social | DE | tends centre-left | public AppView search (API) | the posts themselves | ~3,500 (cap 2,000/run: targeted searches + sample) |
-| `bluesky_jetstream` | [Bluesky](https://bsky.app) live firehose (Jetstream) | social | DE | mixed | 5-minute live window per run | German posts (`langs` contains `de`) | ~650 (cap 500/run) |
-| `apollo` | [Apollo News](https://apollo-news.net) | news | DE | right-conservative | WordPress REST | site-wide WordPress REST comment feed, 10 % sample | ~400 (of ~4,000; cap 250/run) |
+| `bluesky` | [Bluesky](https://bsky.app), German-language searches + sample + feed "Deutsche Politik" | social | DE | tends centre-left | public AppView search and `getFeed` (API) | the posts themselves | ~2,000 search + ~200–300 feed (cap 2,300/day) |
+| `bluesky_jetstream` | [Bluesky](https://bsky.app) live firehose (Jetstream) | social | DE | mixed | 5-minute live window per run | German posts (`langs` contains `de`) | ~600 (cap 700) |
+| `apollo` | [Apollo News](https://apollo-news.net) | news | DE | right-conservative | WordPress REST | site-wide WordPress REST comment feed, 10 % sample | ~250 (of ~4,000; cap 300) |
 | `overton` | [Overton Magazin](https://overton-magazin.de) | news | DE | left / critical of the establishment | WordPress REST | site-wide WordPress REST comment feed | ~260 |
 | `lawblog` | [lawblog](https://www.lawblog.de) (Udo Vetter) | news | DE | law / civil liberties | WordPress REST | site-wide WordPress REST comment feed | ~40 |
-| `iphoneticker` | [iphone-ticker.de](https://www.iphone-ticker.de) | news | DE | tech (Apple, apps) | RSS `/feed/` (with comment counts) | per-article comment feed, article HTML as fallback | ~450 (cap 300/run) |
-| `ifun` | [iFun.de](https://www.ifun.de) | news | DE | tech (Apple, apps) | RSS `/feed/` (with comment counts) | per-article comment feed, article HTML as fallback | ~300 (cap 250/run) |
+| `iphoneticker` | [iphone-ticker.de](https://www.iphone-ticker.de) | news | DE | tech (Apple, apps) | RSS `/feed/` (with comment counts) | per-article comment feed, article HTML as fallback | ~40–270 (cap 250) |
+| `ifun` | [iFun.de](https://www.ifun.de) | news | DE | tech (Apple, apps) | RSS `/feed/` (with comment counts) | per-article comment feed, article HTML as fallback | ~30–200 (cap 150) |
 | `appgefahren` | [appgefahren.de](https://www.appgefahren.de) | news | DE | tech (apps) | WordPress REST | site-wide WordPress REST comment feed | ~90 |
-| `computerbase` | [ComputerBase](https://www.computerbase.de) | news | DE | tech (hardware, software) | Atom `/rss/news.xml` | the news' forum thread (XenForo HTML) | ~400 (6 new threads, 200 comments per run) |
-| `wallstreet` | [wallstreet-online.de](https://www.wallstreet-online.de) forum | news | DE | finance / retail investors | community start page (most active threads) | newest thread pages (HTML) | ~300 (cap 150/run) |
+| `computerbase` | [ComputerBase](https://www.computerbase.de) | news | DE | tech (hardware, software) | Atom `/rss/news.xml` | the news' forum thread (XenForo HTML) | ~430 (6 new threads per run, cap 400 strict) |
+| `wallstreet` | [wallstreet-online.de](https://www.wallstreet-online.de) forum | news | DE | finance / retail investors | community start page (most active threads) | newest thread pages (HTML) | ~200 (cap 300) |
+| `allmystery` | [Allmystery](https://www.allmystery.de/themen/pr) "Politik" forum | news (forum) | DE | mixed, lively debates on parties | category listing `/themen/pr` | one thread per party/politician, newest pages (HTML) | ~135 (cap 300) |
+| `finanztip` | [Finanztip Community](https://www.finanztip.de/community/) (WoltLab) | news (forum) | DE | consumer finance, provider experiences | thread RSS (board 14 first) | page 1 of active threads (HTML) | ~40–60 (cap 200) |
+| `goingelectric` | [GoingElectric](https://www.goingelectric.de/forum/) (phpBB) | news (forum) | DE | tech (electric cars, charging) | Atom feed `/forum/feed` + topic revisits | newest topic pages (HTML) | ~30–80 (cap 150) |
+| `kuketz` | [Kuketz-Forum](https://www.kuketz-forum.de) (Discourse) | news (forum) | DE | tech (privacy, IT security, digital policy) | `/posts.json` | the posts themselves (`cooked`) | ~65 (cap 100) |
+| `bundestag` | [ePetitionen-Forum](https://epetitionen.bundestag.de) (Deutscher Bundestag) | news (forum) | DE | citizens' petitions, mixed | petitions open for co-signing (most forum posts) | discussion threads per petition (HTML, RSS) | ~1–20 (cap 150; forums are quiet right now) |
 
 The leaning column is a rough orientation for interpreting results (commenters are not the editorial line);
 the mix was chosen to cover the spectrum. Estimates are per day at the 12-hour schedule (see
 "Volume caps and Firestore cost" below).
+
+**Political balance.** Among the comment-heavy news sources, the right of centre is over-represented (Tichys Einblick
+~950/day, Apollo News, Achse des Guten, Cicero) against the left (taz, der Freitag, Overton). The public broadcasters
+BR24 (Bavaria) and rbb24 (Berlin/Brandenburg) were added partly for that reason: their comment sections are moderated,
+large and regionally different, and together with tagesschau they give a broad centre. Social media (Bluesky,
+Mastodon) tends centre-left. When interpreting sentiment per party or person, compare sources (or weight them) rather
+than reading the pooled numbers as "the" German opinion. Allmystery's party threads mix supporters and opponents in one
+place; the Bundestag petitions forum is non-partisan by design.
 
 ### Why each source is allowed and how its comments are fetched
 
@@ -173,14 +188,15 @@ applies. `python -m crawler check-robots` prints the live decision for every end
 Siemens, Telekom, …), tech (KI, OpenAI, Apple, …) and TV (Tagesschau, ZDF, Markus Lanz, Maischberger, Tatort, …).
 The unauthenticated search refuses cursor paging (403) and `#hashtag` queries (400), so it pages by time (`until` =
 oldest post seen, ≤3 pages per term). Posts are deduplicated by URI and grouped into one pseudo-article per term
-and day. Cap 2,000 posts per run (75 % searches, 25 % sample).
+and day. Since 26 Oct 2026 the source is capped at 1,150 posts per run: 150 for the "Deutsche Politik" feed (see
+below) and 1,000 for the searches (75 % targeted, 25 % sample), i.e. ~2,000 search posts a day instead of ~3,500.
 
 **Mastodon**: 17 German instances whose local timeline is public (`timelines_access.live_feeds.local =
 public`) and whose robots.txt allows the API (added on 23 Oct 2026: mastodontech.de, social.anoxinon.de, bonn.social,
 nerdculture.de, machteburch.social, det.social; their robots.txt only disallows `/media_proxy/`, `/interact/` and the
 domain block list, plus `GPTBot` entirely). det.social sometimes answers 429: the client backs off (Retry-After or
 5/10/20 s) and then skips the instance for this run. swiss.social and wien.rocks are deliberately not used (German
-focus). Above the cap of 600 posts per run, every instance is thinned evenly.
+focus). Above the cap of 400 posts per run (800 a day), every instance is thinned evenly.
 
 **Bluesky Jetstream** (`jetstream{1,2}.us-{east,west}.bsky.network`)
 
@@ -205,7 +221,7 @@ focus). Above the cap of 600 posts per run, every instance is thinned evenly.
   (obeyed). appgefahren is additionally throttled to one request per 5 s (`config.HOST_MIN_DELAY`).
 - Apollo has ~2,000 comments per 12 h. We keep a **deterministic 10 % sample** (`sha1(comment id)`), so the kept
   comments are spread over the whole day and all articles, and the 12 h overlap of the next run selects exactly the
-  same comments again (no duplicates, no extra writes). `ApolloNews.sample_share`, hard cap 250 per run.
+  same comments again (no duplicates, no extra writes). `ApolloNews.sample_share`, hard cap 150 per run (300 a day).
 
 **iphone-ticker.de, iFun.de** (same publisher and WordPress theme)
 
@@ -240,6 +256,116 @@ focus). Above the cap of 600 posts per run, every instance is thinned evenly.
   threads (cap 150 per run). `data-nick`/`data-userid`, the nick block and quotes ("Zitat von <name>") are never read;
   the quote's `#beitrag_<id>` link becomes `parentId`. Timestamps are Berlin time (`dd.mm.yy hh:mm:ss`). Source
   `topic` is `general` (the data contract has no finance topic); articles carry the topic "Börse".
+
+**BR24** (`br.de`, Coral on `comments.br24.de`)
+
+- `www.br.de/robots.txt`, group `*`: `/nachrichten/` and the news sitemap are allowed. `comments.br24.de/robots.txt`
+  answers 404 (RFC 9309: no restrictions). The comments are shown to every anonymous visitor.
+- How: articles from the Google News sitemap `/nachrichten/newsSitemap` (title, date, keywords); short agency items
+  (`/nachrichten/meldung/`) have no comments and are skipped. The Coral story id is the suffix after the comma of the
+  URL (`…/titel,VZ4flIU`); the article URL is stored ID-based (`…/<section>/beitrag,<id>`, redirects to the article).
+  Coral refuses raw GraphQL; the embed uses persisted queries: `GET /api/graphql?query=&id=<id>&variables=<json>`.
+  Each run reads `/embed/bootstrap` (~1 KB); if it names the known bundle `stream.e17437fa….js` the known ids are used,
+  otherwise the new bundle is read and the ids of `AllCommentsTabQuery`, `AllCommentsTabContainerPaginationQuery` and
+  `StreamQuery` are taken from it (`params:{id:"…",name:"…"}`), with the known ids as fallback. `StreamQuery` (~3 KB)
+  gives `commentCounts.totalPublished` (count check), `AllCommentsTabQuery` the newest 20 threads with replies, the
+  pagination query the next 50 threads by cursor (`CREATED_AT_DESC`).
+- Volume: ~2,000 comments a day in total. New stories are ranked by comment count (the 30 newest are probed) and at
+  most 4 are started per run; a fetch reads at most 100 comments (newest threads first). Cap 300 per run, strict.
+- Privacy: `author` (username, avatar, bio, id) and `parent.author` are never read; quotes and `@name` are removed.
+  Upvotes = reaction count. Country `DE` (Bavaria).
+
+**rbb24** (`rbb24.de`)
+
+- robots.txt group `*` allows the section pages, article pages and `*.commentthreads.jsn`.
+- How: article links from the section pages `/`, `/politik/`, `/panorama/`, `/wirtschaft/`, `/kultur/`, `/sport/`
+  (the newest 30 per page, current month only; at most 40 new articles per run). The article page gives the date
+  (JSON-LD), the keywords and `data-comment-config` with `totalCountCommentsAndAnswers` (count check: unchanged → no
+  comment request). Articles without a comment section are marked (`commentThreadId = "-"`) and never fetched again.
+  Comments: `<article>.commentthreads.jsn?start=0&size=100` (JSON, newest threads first): `{id, text, author, date,
+  isEditorial, answers}`; `date` is Berlin time (`Oct 24, 2026, 9:43:38 PM`). `author` is never read, editorial
+  answers are skipped, answers are deduplicated by id and get the thread root as parent. Cap 125 per run, strict.
+
+**Allmystery** (`allmystery.de`, "Politik" category)
+
+- robots.txt group `*`: disallows `/bilder/`, `/mitglieder/`, `/pn/`, `/login/`, `/ng/`, `/fcgi/` and the imprint;
+  `/themen/` is allowed. Readable without login.
+- How: stream source. The listing `/themen/pr` gives the 50 most recently active threads with last-post time and last
+  page. One long-running thread per party or person is followed (AfD `pr98768`, CDU/CSU `pr94635`, SPD `pr135414`,
+  Linke `pr37553`, Grüne `pr89279`, BSW `pr170539`, Merz `pr172339`, Höcke `pr174320`, Trump `pr120332`) plus the 5
+  most active other politics threads: only threads with posts since the previous run, last page first
+  (`/themen/pr<id>-<n>`), earlier pages only while all posts are new (max 3). Posts: `div.post[data-id]` (global id),
+  `span.date[title]` (Berlin time), `.post-content`; `data-username`, the user box, `@name` links (`a.atu`) and quotes
+  ("<name> schrieb:", `data-parent-id` → `parentId`) are removed. The thread title is the article context. Round robin
+  over threads, cap 150 per run.
+
+**Finanztip Community** (`finanztip.de/community`, WoltLab)
+
+- robots.txt group `*`: **`Crawl-delay: 3`** (obeyed); disallows search, member list, posting, a few TYPO3 paths.
+  The thread RSS feeds and thread pages are allowed.
+- How: stream source. RSS `thread-list-rss-feed/14/` (board "Erfahrungen mit Anbietern") first, then the whole forum
+  (`thread-list-rss-feed/`): the 20 most recently active threads each. Threads with posts since the previous run are
+  read: `article[data-post-id]`, `<woltlab-core-date-time date="ISO">`, `.messageText`; the author box, signatures,
+  `a.userMention` and quotes ("Zitat von <name>", `postID` → `parentId`) are removed.
+- Limitation: anonymous thread pages come from a CDN cache that ignores the query string (`?pageNo=N` returns page 1,
+  `Age` up to several hours). So only page 1 (the first 20 posts) of a thread is used, and the source re-reads a 12 h
+  overlap (stored posts are filtered with a read). Source `topic` is `general` (no finance topic in SCHEMA.md).
+
+**GoingElectric** (`goingelectric.de/forum`, phpBB)
+
+- robots.txt group `*`: disallows `index.php`, `memberlist.php`, `search.php`, `ucp.php`, `posting.php`, `report.php`,
+  `download.php`, every URL with `sid=` or `hilit=`; `/forum/feed` and `viewtopic.php` are allowed.
+- How: stream source. The Atom feed (10 newest posts) gives topics; `viewtopic.php?p=<post>` is that topic's last page.
+  Topics stored in the last 3 days are revisited with `viewtopic.php?t=<id>&start=99999` (phpBB clamps to the last
+  page). Earlier pages only while all posts are new (max 2). URLs are always built from ids, links with `sid=` are never
+  followed. Dates are German (`So 25. Okt 2026, 21:08`, Berlin time). The user name, profile card, signature and
+  quotes ("<name> hat geschrieben:", `p=<id>` → `parentId`) are removed. Cap 75 per run. `topic` = `tech`.
+
+**Kuketz-Forum** (`kuketz-forum.de`, Discourse)
+
+- robots.txt group `*`: disallows `/admin/`, `/auth/`, `/session`, `/search`, `/my`, `/g`, `/badges`, the topic and
+  category RSS feeds and `api_key` URLs. `/posts.json` is allowed and public.
+- How: stream source. `/posts.json` (newest 50 posts), paged with `?before=<id>` until the previous run. Only `id`,
+  `topic_id`, `topic_title`, `post_number`, `reply_to_post_number`, `created_at` and `cooked` are read; `username`,
+  `name`, `avatar_template`, `user_id` etc. never. Quotes (`aside.quote`) and `a.mention` are removed; only regular,
+  visible posts. One topic = one article (`/t/<id>`). Cap 50 per run. `topic` = `tech`.
+
+**Bundestag ePetitionen forum** (`epetitionen.bundestag.de`)
+
+- robots.txt: `/robots.txt` redirects through the site's cookie check and then answers 404 (RFC 9309: no restrictions);
+  every request is still checked. The site sets a session cookie on the first request (302 to
+  `/epet/rediraftercookiecheck.html` and back); the HTTP session keeps it in its cookie jar. No login, no account.
+- How: stream source. The list of petitions open for co-signing (`…teaser-petitionen-table.$$$.status.2.page.<N>.
+  batchsize.10.html`, up to 8 pages) gives title, category and forum post count; the 20 petitions with the most posts
+  are checked. Per petition the thread table (`forum.kommentare.table.$$$.page.0.html`) gives opening and last-post
+  times; threads with new posts are read via `Beitrag_<thread>.alleAntwortenNachDatum.$$$.page.1.html` (date, time,
+  text, reply path → `parentId`), new threads' own text comes from the petition's `forum.rss.xml` (no dates there).
+  Names and pseudonyms ("Nutzer1234567") are never read: the author line contributes only date and time; quotes
+  ("Zitat: von §§§<id>§§§"), the masked ids and the reply header "@ <name> | <date>" are removed; moderator notes
+  ("DOPPELPOST …") are skipped. The petition title is the article. Cap 75 per run; activity is low at the moment.
+
+**Bluesky feed "Deutsche Politik"** (part of the `bluesky` source)
+
+- `public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:xcprh522pngo62qeonh2jj5u/app.bsky.feed.generator/aaaown2rdgu6m`
+  (robots.txt like `api.bsky.app`: crawling the public API is allowed). Newest first, paged by cursor until the previous
+  run, reposts skipped, only posts with `de` (or no language) in `langs`, same `!no-unauthenticated` opt-out filter and
+  the same comment ids (`sha1("bluesky:" + uri)`) as the search and Jetstream, so a post found twice is stored once.
+  150 of the 1,150 posts per run are reserved for the feed; the pseudo-article URL is
+  `https://bsky.app/?feed=deutsche-politik&day=…` (no DID).
+
+### Candidates (not implemented yet)
+
+Researched on 26 Oct 2026, kept for later (or for a decision of the team):
+
+| site | note |
+|---|---|
+| Hardwareluxx, PCGH / PC Games, Dr. Windows | large German tech forums; not needed for the volume now |
+| DealDoktor, BVB-Forum, Tarnkappe, Abendzeitung | possible, low priority |
+| MacTechNews | its terms require consent before content is reused; ask first |
+| Weser-Kurier | Disqus: needs an API key and the Disqus terms |
+| meinBerlin / Baden-Württemberg participation portals | public, but mostly structured proposals rather than comments |
+| politikforen.net (hpf) | technically possible, but a strongly right-wing forum; would worsen the political balance |
+| Badische Zeitung | an anonymous Coral instance was reported but **not verified**; the entry under "Rejected sources" (Coral only for logged-in readers) still holds until someone checks it manually in a browser |
 
 ### Rejected sources
 
@@ -295,7 +421,8 @@ focus). Above the cap of 600 posts per run, every instance is thinned evenly.
   no field for them (a test enforces this). `@mentions` of other users are stripped from the text
   (`@Name:` at the start of a reply and inline `@username`; e-mail addresses are kept).
 - Only what the analysis needs is stored: text, timestamps, thread structure (`parentId`), upvotes.
-- Only public content: no login, no cookies, no paywall circumvention, no bot-protection circumvention.
+- Only public content: no login, no paywall circumvention, no bot-protection circumvention. No cookies, except the
+  anonymous session cookie the Bundestag petitions site sets for every visitor (kept in the run's cookie jar only).
 - Social posts are treated exactly like comments: text, timestamp, reply structure. Opt-outs are honoured
   (Mastodon `noindex`/`indexable`, Bluesky `!no-unauthenticated`), bots and non-public posts are skipped.
 - Comment text is internal to the pipeline (see SCHEMA.md); the public API only serves aggregates.
@@ -332,6 +459,13 @@ src/crawler/
     appblogs.py       iphone-ticker.de / ifun.de: RSS + comment feeds / article HTML
     computerbase.py   ComputerBase news threads (XenForo HTML)
     wallstreet.py     wallstreet-online.de forum (stream, HTML)
+    br24.py           BR24: news sitemap + Coral persisted GraphQL queries
+    rbb24.py          rbb24: section pages + commentthreads JSON
+    allmystery.py     Allmystery politics threads (stream, HTML)
+    finanztip.py      Finanztip community (stream, WoltLab RSS + HTML)
+    goingelectric.py  GoingElectric forum (stream, phpBB Atom + HTML)
+    kuketz.py         Kuketz-Forum (stream, Discourse posts.json)
+    bundestag.py      Bundestag ePetitionen forum (stream, HTML + RSS)
   discovery.py      Google News sitemap parser, JSON-LD/breadcrumb article metadata
   http.py           PoliteSession: robots check, per-host throttle, retries
   robots.py         robots.txt: urllib.robotparser + own RFC 9309 group/wildcard evaluation
@@ -341,7 +475,8 @@ src/crawler/
   models.py         ArticleRef, Comment, FetchResult (no author fields)
 ```
 
-**Stream sources** (Tichys Einblick, Mastodon, Bluesky) list new items directly. Each run asks for everything
+**Stream sources** (Tichys Einblick and the other WordPress sites, Mastodon, Bluesky, feddit, the forums) list new
+items directly. Each run asks for everything
 since the source's `lastCrawlAt` minus an overlap (10 min; 12 h for Tichys Einblick because of pre-moderation),
 drops items from the overlap that are already stored (one Firestore read each, never a write) and groups the rest
 by article (social posts: one pseudo-article per day and instance).
@@ -454,65 +589,68 @@ Firestore is accessed **only over the REST API** (`google.oauth2.service_account
 
 ## Volume caps and Firestore cost
 
-Uncapped, the sources produce ~23,000–28,000 new comments per day, ~70 % from derStandard (Austria). That is more
-than the analysis can process (2 runs × 150 min per day on 2-vCPU runners), costs writes for data the project does
-not focus on and drowns the German sources. derStandard and Blick are therefore capped per run in
-`config.SOURCE_LIMITS`:
+**Budget.** The analysis can process ~14,700 new comments a day within its Firestore share; a backlog and new analysis
+features (entities) need headroom. So all sources together must stay at or below **~11,000 new comments a day**
+(`config.DAILY_COMMENT_TARGET`). Uncapped, the sources would produce well over 25,000 (derStandard alone ~15,000–20,000,
+Bluesky as much as we ask for).
 
-| source | `max_new_articles_per_run` | `max_comments_per_run` | selection of new articles |
-|---|---|---|---|
-| `derstandard` | 2 | 100 (strict) | only stories about Germany, the EU or the USA (title filter); International, Wirtschaft and Web first (section RSS feeds), among those the most active forums, then by recency |
-| `blick` | 2 | 50 (strict) | Politik, Schweiz, Ausland, Wirtschaft, Sport first (URL path), then by recency |
+**Daily caps.** Every source has a daily cap in `config.DAILY_COMMENT_CAPS`; the crawl runs twice a day
+(`RUNS_PER_DAY`), so the per-run cap `max_comments_per_run` is half of it. The caps add up to 10,990 (a test keeps the
+sum at or below the target). Additional per-source limits are in `config.EXTRA_LIMITS`.
 
-- `strict` (derStandard, Blick): the comment budget also stops revisits of tracked articles, so the daily
-  maximum holds. Both sources can be switched off completely with `CRAWLER_DISABLED_SOURCES=derstandard,blick`.
-- Otherwise the caps only limit **new** articles. Articles already being tracked are revisited without limit, and every
-  kept article is crawled completely (all threads, newest first), so the data stays coherent instead of
-  containing truncated threads.
-- `max_comments_per_run` is a budget: once this many new comments were stored in a run, no further new article is
-  started (the current one is always finished).
-- Articles not taken stay candidates while they are in the sitemap window and may be taken by a later run if they
-  rank high then (their first crawl is then complete as well).
+- Stream sources (comment feeds, social media, forums): the per-run cap is a hard limit on the items fetched.
+- Article sources: `max_comments_per_run` is a budget: once this many new comments were stored in a run, no further new
+  article is started (the current one is always finished). With `strict` (derStandard, Blick, ComputerBase, BR24,
+  rbb24) the budget also stops revisits of tracked articles. Without `strict` (tagesschau, taz, Cicero, …) tracked
+  articles are revisited without limit and crawled completely, so their threads stay coherent; the cap then limits
+  only new work. A strict cap can be exceeded by one article (the article that crosses it is finished; BR24 limits a
+  fetch to 100 comments for that reason).
+- `max_new_articles_per_run` (derStandard 2, Blick 2, BR24 4, ComputerBase 6, rbb24 40): new articles taken per run,
+  most relevant first (derStandard: Germany/EU/USA stories, most active forums; Blick: Politik, Schweiz, Ausland, …;
+  BR24: most commented; app blogs: most discussed). Articles not taken stay candidates while they are discovered.
 - Overrides: `--source-limit derstandard.max_comments_per_run=3000` (repeatable; `0` removes one cap,
   `derstandard=off` all caps of a source) or the env var `CRAWLER_SOURCE_LIMITS` with JSON of the same shape as
-  `SOURCE_LIMITS`.
+  `SOURCE_LIMITS`. Sources can be switched off with `CRAWLER_DISABLED_SOURCES=derstandard,blick`.
 
-Estimated new comments per day with the caps (2 runs a day; new sources measured with dry runs on 23 Oct 2026,
-existing ones from the Firestore counts of 21–23 Oct):
+New comments per day, before and after the change of 26 Oct 2026. "Before" are the Firestore counts of 24 and 25 Oct
+(average, `comments` by `sourceId` and `day`). "After" for the new sources and Bluesky comes from dry runs on
+26 Oct 2026 (`--since-hours 12`, i.e. one run, ×2; `--since-hours 48` for the quiet forums); the other sources are
+unchanged.
 
-| source | per day | cap per run |
-|---|---|---|
-| bluesky (search) | ~1,850 (cap allows 4,000) | 2,000 |
-| mastodon (17 instances) | ~1,100 | 600 |
-| tichyseinblick | ~950 | – |
-| bluesky_jetstream | ~650 (5-min window: ~535 German posts, ~330 after the opt-out filter) | 500 |
-| iphoneticker | ~450 | 300 |
-| apollo | ~400 (10 % sample of ~4,000) | 250 |
-| computerbase | ~400 | 6 new threads / 200 (strict) |
-| tagesschau | ~400 | – |
-| ifun | ~300 | 250 |
-| wallstreet | ~300 | 150 |
-| taz | ~300 | – |
-| overton | ~260 | 250 |
-| cicero | ~250 | 600 |
-| caschy | ~200 | – |
-| feddit | ~150–200 | – |
-| achgut | ~150 | 400 |
-| appgefahren | ~90 | 100 |
-| lawblog | ~40 | 100 |
-| freitag, netzpolitik, ruhrbarone | ~45 | – |
-| **Germany** | **~8,300** | |
-| derstandard (AT) | ≤200 | 2 new articles / 100 (strict) |
-| blick (CH) | ≤100 | 2 new articles / 50 (strict) |
-| **total** | **~8,600**, about 96 % from German sources | |
+| source | before | after | daily cap | per run |
+|---|---|---|---|---|
+| bluesky (search: targeted + sample) | 3,534 | ~1,900 (dry run: 937 per run) | 2,000 | 1,000 |
+| bluesky (feed "Deutsche Politik", new) | – | ~200–300 (dry run: 97 per daytime run) | 300 | 150 |
+| tagesschau | 983 | 983 | 1,100 | 550 |
+| tichyseinblick | 943 | 943 | 1,100 | 550 |
+| mastodon (17 instances) | 693 | 693 | 800 | 400 |
+| derstandard (AT) | 642 | 642 | 200 (strict, see note) | 100 |
+| bluesky_jetstream | 600 | 600 | 700 | 350 |
+| computerbase | 434 | 434 | 400 (strict) | 200 |
+| apollo | 249 | 249 | 300 | 150 |
+| taz | 213 | 213 | 300 | 150 |
+| wallstreet | 202 | 202 | 300 | 150 |
+| feddit | 178 | 178 | 250 | 125 |
+| caschy | 173 | 173 | 220 | 110 |
+| overton | 133 | 133 | 250 | 125 |
+| cicero | 58 | 58 | 150 | 75 |
+| iphoneticker, ifun, appgefahren | 91 | 91 | 250 / 150 / 100 | 125 / 75 / 50 |
+| achgut, lawblog, freitag, netzpolitik, ruhrbarone | 109 | 109 | 100 / 60 / 60 / 30 / 20 | half |
+| blick (CH) | 33 | 33 | 100 (strict) | 50 |
+| **br24** (new) | – | ~600 (cap-bound; dry run: 300 per run from 3 stories) | 600 (strict) | 300 |
+| **rbb24** (new) | – | ~150–250 (dry run: 183, first crawl of 20 articles) | 250 (strict) | 125 |
+| **allmystery** (new) | – | ~135 (dry run: 67 per run) | 300 | 150 |
+| **kuketz** (new) | – | ~65 (dry run: 33 per run) | 100 | 50 |
+| **goingelectric** (new) | – | ~30–80 (dry run: 22 per run, 53 in 48 h without revisits) | 150 | 75 |
+| **finanztip** (new) | – | ~40–60 (dry run: 28 per run, 85 in 48 h) | 200 | 100 |
+| **bundestag** (new) | – | ~1–20 (dry run: 2 in 48 h) | 150 | 75 |
+| **total** | **~9,260** | **~9,000** (≈ 7,630 existing incl. Bluesky search + ≈ 1,350 new incl. feed) | **10,990** | |
 
-With every cap reached the total stays below ~13,000 comments a day, i.e. ≤ ~14,500 crawler writes (comments plus
-article docs), well inside the crawler's 25,000; the downstream analysis reads each comment once more.
-
-A dry run (`python -m crawler run --sources derstandard,blick --since-hours 24 --dry-run`) on 22 Oct 2026 took
-10 of 168 derStandard candidates (1,953 comments, the first crawl of busy forums) and 15 of 131 Blick
-candidates (310 comments). Right after enabling the caps, articles that were tracked before keep being revisited
-for up to 3 days, so the volume falls to the target over that period.
+So the new sources (~1,350/day) are paid for by the smaller Bluesky search (−1,600/day); the total stays at ~9,000,
+about 2,000 below the 11,000 target, and even with every cap reached it stays below 11,000 for the stream sources and
+strict sources. The non-strict article sources (tagesschau, taz, Cicero, …) can exceed their cap through revisits
+of busy discussions; their measured volumes are below their caps. Note: derStandard and ComputerBase were measured
+above their strict caps because the article that crosses the cap (a first crawl of a busy forum) is always finished.
 
 Each new comment costs one write by the crawler and one update by the analysis; revisits that find nothing new
 cost no writes (see "Revisits"). At roughly $0.18 per 100k writes and $0.06 per 100k reads (europe-west3) the
@@ -534,7 +672,8 @@ components, of which the crawler may use 25,000 writes and 60,000 reads (`DAILY_
   day changed), with the document's `updateTime` as precondition and retries on conflict.
 - The run summary shows `crawler_writes_today`, `crawler_reads_today`, `writes_left_today`, `reads_left_today`.
 
-At ~8,600 comments/day the crawler needs roughly 9–10k writes and 5–10k reads per day, well inside its share.
+At ~9,000 comments/day (at most ~11,000) the crawler needs roughly 10–12k writes and 5–10k reads per day, well inside
+its share.
 
 ## Schedule
 
