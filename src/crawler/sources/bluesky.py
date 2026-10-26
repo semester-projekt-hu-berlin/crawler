@@ -162,13 +162,7 @@ STATIC_QUERIES = (
     "heute-show",
     "Böhmermann",
     "Polizeiruf",
-    "#Bundestag",
-    "#Lanz",
-    "#Maischberger",
-    "#Tatort",
-    "#hartaberfair",
-    "#Illner",
-    "#Miosga",
+    "hartaberfair",
 )
 QUERIES_PER_RUN = 60
 TARGETED_PAGES = 3  # x 100 posts per query and run (time-based paging)
