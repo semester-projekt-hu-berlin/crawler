@@ -12,6 +12,11 @@ use the most frequent German word ("die"), which matches the large majority of G
 posts. Authors who asked not to be shown to logged-out users (label
 ``!no-unauthenticated``) are skipped. Stored: text (mentions removed), indexing time,
 reply structure. No handles, DIDs or display names.
+
+Besides the searches, each run reads the public custom feed "Deutsche Politik"
+(``public.api.bsky.app/xrpc/app.bsky.feed.getFeed``, ~300-400 German politics posts a day,
+newest first, paged by cursor until the previous run) with the same opt-out filter and the
+same comment ids, so a post found by the feed and a search is stored once.
 """
 
 from __future__ import annotations
@@ -26,6 +31,14 @@ from crawler.sources.base import StreamItem, StreamSource
 from crawler.text import clean_text
 
 API = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+FEED_API = "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed"
+# Custom feed "Deutsche Politik" (feed generator record; the DID is the feed's, not a poster's, and is
+# never stored: the pseudo-article URL below does not contain it).
+POLITICS_FEED = "at://did:plc:xcprh522pngo62qeonh2jj5u/app.bsky.feed.generator/aaaown2rdgu6m"
+POLITICS_FEED_URL = "https://bsky.app/?feed=deutsche-politik"
+FEED_PER_RUN = 150  # of max_items, reserved for the feed (~300/day); the rest goes to the searches
+FEED_PAGE = 100
+FEED_MAX_PAGES = 6
 QUERY = "die"
 SAMPLE_PER_WINDOW = 100
 WINDOW = timedelta(hours=1)
@@ -47,6 +60,11 @@ def post_text(record: dict[str, Any]) -> str:
     for start, end in sorted(cuts, reverse=True):
         raw = raw[:start] + raw[end:]
     return clean_text(raw.decode("utf-8", errors="ignore"))
+
+
+def _german(record: dict[str, Any]) -> bool:
+    langs = record.get("langs")
+    return not langs or any(str(lang).lower().split("-")[0] == "de" for lang in langs)
 
 
 def parse_posts(posts: list[dict[str, Any]], source_id: str = "bluesky") -> list[Comment]:
@@ -159,7 +177,7 @@ TARGETED_SHARE = 0.75  # of max_items; the rest is the time-spread sample
 
 class Bluesky(StreamSource):
     id = "bluesky"
-    name = "Bluesky (deutschsprachig: Stichprobe + Themensuche)"
+    name = "Bluesky (deutschsprachig: Stichprobe, Themensuche, Feed Deutsche Politik)"
     domain = "bsky.app"
     country = "DE"
     source_type = "social"
@@ -190,7 +208,46 @@ class Bluesky(StreamSource):
         return (merged + merged)[offset : offset + QUERIES_PER_RUN]
 
     def fetch_since(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
+        feed = self.politics_feed(since, until, min(FEED_PER_RUN, max_items))
+        search = self.search(since, until, max(0, max_items - FEED_PER_RUN))
+        items = {i.comment.native_id: i for i in feed}
+        for item in search:
+            items.setdefault(item.comment.native_id, item)
+        return list(items.values())[:max_items]
+
+    def politics_feed(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
+        """Posts of the "Deutsche Politik" feed published in ``[since, until]``, newest first."""
+        items: list[StreamItem] = []
+        cursor: str | None = None
+        for _ in range(FEED_MAX_PAGES):
+            if len(items) >= max_items:
+                break
+            params: dict[str, Any] = {"feed": POLITICS_FEED, "limit": FEED_PAGE}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = self.http.get_json(FEED_API, params=params) or {}
+            except Exception as exc:  # noqa: BLE001 - the searches still run
+                self.log.warning("politics feed failed: %s", type(exc).__name__)
+                break
+            posts = [row.get("post") or {} for row in data.get("feed") or [] if not row.get("reason")]
+            german = [p for p in posts if _german(p.get("record") or {})]
+            for c in parse_posts(german, self.id):
+                if since <= c.published_at <= until and len(items) < max_items:
+                    ref = self.day_article(POLITICS_FEED_URL, "Bluesky · Feed „Deutsche Politik“", c.published_at,
+                                           ["Bluesky", "Politik"])  # fmt: skip
+                    items.append(StreamItem(ref, c))
+            times = [t for p in posts if (t := parse_datetime(p.get("indexedAt")))]
+            cursor = data.get("cursor")
+            if not cursor or not times or min(times) < since:
+                break
+        return items
+
+    def search(self, since: datetime, until: datetime, max_items: int) -> list[StreamItem]:
+        """Targeted searches (``TARGETED_SHARE`` of ``max_items``) plus the time-spread sample."""
         items: dict[str, StreamItem] = {}
+        if max_items <= 0:
+            return []
         targeted_cap = int(max_items * TARGETED_SHARE)
         for query in self.queries(until):
             if len(items) >= targeted_cap:

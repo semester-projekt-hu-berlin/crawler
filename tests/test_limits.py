@@ -16,12 +16,13 @@ from .test_pipeline import FakeStore
 NOW = datetime.now(UTC)
 
 
-def test_defaults_cap_only_selected_sources():
+def test_defaults_cap_every_source_strict_only_where_chosen():
     limits = source_limits([])
     assert set(limits) == set(SOURCE_LIMITS)
     assert limits["derstandard"]["strict"] and limits["blick"]["strict"]
     assert limits["derstandard"]["max_comments_per_run"] <= 150 and limits["blick"]["max_comments_per_run"] <= 75
-    assert not {"tagesschau", "taz", "tichyseinblick", "freitag"} & set(limits)
+    # big German article sources: daily cap, but revisits of tracked articles are not stopped
+    assert not any(limits[s].get("strict") for s in ("tagesschau", "taz", "freitag", "cicero"))
 
 
 def test_cli_and_env_overrides(monkeypatch):

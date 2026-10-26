@@ -41,36 +41,71 @@ FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "meinungspuls-hu")
 FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)")
 
 
-# Per-source caps (per run; the crawl runs twice a day). Why: Firestore cost, the analysis
-# capacity (2 runs x 150 min/day on 2 vCPUs) and the German focus of the project. Uncapped
-# sources are simply not listed.
+# Per-source caps. Why: Firestore cost, the analysis capacity (it can process ~14,700 new comments
+# a day within its Firestore share, and a backlog plus new analysis features need headroom) and
+# the German focus of the project. All sources together must stay at or below
+# DAILY_COMMENT_TARGET new comments a day.
+#
+# DAILY_COMMENT_CAPS: new comments per source and day. The crawl runs RUNS_PER_DAY times a day,
+# so the per-run cap ``max_comments_per_run`` is the daily cap divided by RUNS_PER_DAY.
+#   Stream sources (comment feeds, social media, forums read as streams): hard cap per run.
+#   Article sources: once the per-run cap is reached no further *new* article is started; with
+#   ``strict`` the cap also stops revisits of tracked articles. Without ``strict``, revisits of
+#   articles already tracked continue (complete threads), so the cap is a ceiling for new work,
+#   and the real volume of these sources is what the measurements in the README show.
+RUNS_PER_DAY = 2
+DAILY_COMMENT_TARGET = 11_000
+DAILY_COMMENT_CAPS: dict[str, int] = {
+    # social media
+    "bluesky": 2_300,  # 2,000 search (targeted + sample) + 300 "Deutsche Politik" feed
+    "bluesky_jetstream": 700,
+    "mastodon": 800,
+    "feddit": 250,
+    # news sites
+    "tagesschau": 1_100,
+    "tichyseinblick": 1_100,
+    "taz": 300,
+    "freitag": 60,
+    "cicero": 150,
+    "achgut": 100,
+    "netzpolitik": 30,
+    "ruhrbarone": 20,
+    "apollo": 300,  # deterministic ~10 % sample (see ApolloNews.sample_share)
+    "overton": 250,
+    "lawblog": 60,
+    "br24": 600,  # ~2,000/day available: most-commented stories, newest comments first
+    "rbb24": 250,
+    # tech / app blogs (PRODUCT entities)
+    "caschy": 220,
+    "iphoneticker": 250,
+    "ifun": 150,
+    "appgefahren": 100,
+    "computerbase": 400,
+    # forums
+    "wallstreet": 300,
+    "allmystery": 300,
+    "finanztip": 200,
+    "goingelectric": 150,
+    "kuketz": 100,
+    "bundestag": 150,
+    # Austria / Switzerland, kept small on purpose (German focus)
+    "derstandard": 200,
+    "blick": 100,
+}
+# Caps besides the comment cap:
 #   max_new_articles_per_run: new articles taken per run, most relevant first (revisits of
 #                             articles already being tracked are not limited, so threads stay complete)
-#   max_comments_per_run:     once this many new comments were stored in a run, no further
-#                             *new* articles are started (the current article is always finished)
-#   strict:                   1 = the comment budget also stops revisits of tracked articles
+#   strict:                   1 = the comment cap also stops revisits of tracked articles
+EXTRA_LIMITS: dict[str, dict[str, int]] = {
+    "derstandard": {"max_new_articles_per_run": 2, "strict": 1},
+    "blick": {"max_new_articles_per_run": 2, "strict": 1},
+    "computerbase": {"max_new_articles_per_run": 6, "strict": 1},
+    "br24": {"max_new_articles_per_run": 4, "strict": 1},
+    "rbb24": {"max_new_articles_per_run": 40, "strict": 1},
+}
 SOURCE_LIMITS: dict[str, dict[str, int]] = {
-    # Austria/Switzerland kept small on purpose (German focus): ~200/day and ~100/day.
-    "derstandard": {"max_new_articles_per_run": 2, "max_comments_per_run": 100, "strict": 1},
-    "blick": {"max_new_articles_per_run": 2, "max_comments_per_run": 50, "strict": 1},
-    # small sources, capped only as a safety net for the Firestore budget
-    "cicero": {"max_comments_per_run": 600},
-    "achgut": {"max_comments_per_run": 400},
-    "overton": {"max_comments_per_run": 250},
-    "appgefahren": {"max_comments_per_run": 100},
-    "lawblog": {"max_comments_per_run": 100},
-    # busy sources: Apollo keeps a deterministic ~10 % sample (see ApolloNews.sample_share), ~400/day
-    "apollo": {"max_comments_per_run": 250},
-    # app/tech blogs (PRODUCT entities): most discussed articles first
-    "iphoneticker": {"max_comments_per_run": 300},
-    "ifun": {"max_comments_per_run": 250},
-    "computerbase": {"max_new_articles_per_run": 6, "max_comments_per_run": 200, "strict": 1},
-    "wallstreet": {"max_comments_per_run": 150},
-    # stream sources: max posts per run (Bluesky: targeted searches + sample, ~3,500/day measured)
-    "bluesky": {"max_comments_per_run": 2000},
-    # Jetstream live window (JETSTREAM_LIVE_SECONDS, default 300 s) yields ~400-450 German posts
-    "bluesky_jetstream": {"max_comments_per_run": 500},
-    "mastodon": {"max_comments_per_run": 600},
+    sid: {"max_comments_per_run": cap // RUNS_PER_DAY} | EXTRA_LIMITS.get(sid, {})
+    for sid, cap in DAILY_COMMENT_CAPS.items()
 }
 LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run", "strict")
 
