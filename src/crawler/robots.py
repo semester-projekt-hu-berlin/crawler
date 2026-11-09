@@ -10,6 +10,11 @@ Every URL must be allowed by two checks:
    any sequence, ``$`` anchors the end, the longest matching rule wins and
    ``Allow`` wins a tie.
 
+   One of those differences is not a restriction but a bug: up to Python 3.12 the standard
+   library drops an empty query string from a rule, so ``Disallow: /?`` (the home page with any
+   query string) becomes ``Disallow: /`` (everything). Such rules are therefore evaluated by
+   our own parser only (``_stdlib_lines``), which gives the same answer on every Python version.
+
 Fetch outcomes (RFC 9309, section 2.3.1):
 
 * 2xx: parse and obey.
@@ -78,6 +83,22 @@ def _parse_groups(text: str) -> list[tuple[list[str], list[tuple[str, str]]]]:
     return groups
 
 
+def _stdlib_lines(text: str) -> list[str]:
+    """robots.txt lines for :mod:`urllib.robotparser`, without the rules it reads wrongly.
+
+    A rule path that ends in ``?`` loses the ``?`` in Python <= 3.12 (``Disallow: /?`` blocks the
+    whole site there, ``Disallow: /search?`` also ``/searching``); Python 3.13 reads it correctly.
+    These rules stay in force through :class:`RobotsPolicy`'s own RFC 9309 matching.
+    """
+    lines = []
+    for raw in text.splitlines():
+        key, sep, value = raw.split("#", 1)[0].partition(":")
+        if sep and key.strip().lower() in ("allow", "disallow") and unquote(value.strip()).endswith("?"):
+            continue
+        lines.append(raw)
+    return lines
+
+
 class RobotsPolicy:
     """Rules of one host for our user agent.
 
@@ -109,7 +130,7 @@ class RobotsPolicy:
                     pattern = value if value.startswith(("/", "*")) else "/" + value
                     self.rules.append(_Rule(unquote(pattern), key == "allow"))
         self._stdlib = urllib.robotparser.RobotFileParser()
-        self._stdlib.parse(text.splitlines())
+        self._stdlib.parse(_stdlib_lines(text))
 
     def can_fetch(self, url: str) -> bool:
         if self.disallow_all:
