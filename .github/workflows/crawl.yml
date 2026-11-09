@@ -4,7 +4,7 @@ on:
   schedule:
     # every 12 hours at 04:17 and 16:17 UTC (05:17 / 17:17 Berlin in winter);
     # analysis runs about an hour later. Minute 17 avoids the top-of-the-hour rush.
-    # Fallback only: Vercel Cron (api repo) dispatches the same slots on time; see the gate job.
+    # Fallback only: Cloud Scheduler (via the api repo) dispatches the same slots on time; see the gate job.
     - cron: "17 4,16 * * *"
   workflow_dispatch:
     inputs:
@@ -18,7 +18,7 @@ on:
         description: "Discover articles from the last H hours"
         default: "48"
       trigger:
-        description: "Set to vercel-cron by the API's Vercel Cron (enables duplicate detection); leave empty for manual runs"
+        description: "Set to vercel-cron by the API's cron dispatch (Cloud Scheduler; enables duplicate detection); leave empty for manual runs"
         default: ""
 
 # Never run two crawls at the same time (idempotent anyway, but doubles the load on the sites).
@@ -30,8 +30,8 @@ permissions:
   contents: read
 
 jobs:
-  # The GitHub `schedule` is only a fallback: on busy days it starts hours late, so Vercel Cron
-  # (api repo, vercel.json) dispatches this workflow with trigger=vercel-cron. This job skips a
+  # The GitHub `schedule` is only a fallback: on busy days it starts hours late, so Cloud Scheduler
+  # (via the api repo's cron endpoint) dispatches this workflow with trigger=vercel-cron. This job skips a
   # scheduled run if its slot was already handled, and drops duplicate cron deliveries.
   gate:
     if: github.event_name == 'schedule' || inputs.trigger == 'vercel-cron'
@@ -58,7 +58,7 @@ jobs:
           now=$(date -u -d "$created" +%s) || fail_open "date"
 
           # Look-back window. Schedule: from 1 h before the slot this run belongs to (GitHub may start it
-          # hours late; Vercel fires anywhere in the slot's hour). Cron dispatch: 3 h (duplicate deliveries).
+          # hours late). Cron dispatch: 3 h (duplicate deliveries).
           since=$((now - 4 * 3600))
           if [ "$EVENT" = schedule ]; then
             read -r min hours _ <<< "$SCHEDULE"

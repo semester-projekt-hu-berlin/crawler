@@ -682,10 +682,10 @@ max articles, since hours). It uses the organisation secret `FIREBASE_SERVICE_AC
 concurrently and stops starting new articles after 95 minutes. `.github/workflows/ci.yml` runs ruff (lint +
 format) and pytest on Python 3.11 and 3.13 for every push and pull request.
 
-**Triggering.** GitHub's `schedule` started crawls 2.5–6 h late, so the runs are started by Vercel Cron in the
-API project (`vercel.json` in the `api` repo, `GET /internal/cron/dispatch/crawl`), which sends a
-`workflow_dispatch` with the input `trigger=vercel-cron`. On the Hobby plan Vercel fires anywhere within the
-scheduled hour (04:00–04:59 / 16:00–16:59 UTC). The `schedule` stays as a fallback: the `gate` job
+**Triggering.** GitHub's `schedule` started crawls 2.5–6 h late, so the runs are started by Cloud Scheduler
+(job `meinungspuls-crawl` in the GCP project `meinungspuls-hu`, 04:17 / 16:17 UTC), which calls the API
+(`GET /internal/cron/dispatch/crawl`, see `deploy/setup-gcp.sh` in the `api` repo); the API sends a
+`workflow_dispatch` with the input `trigger=vercel-cron` (the value is historical, from when the cron ran on Vercel). The `schedule` stays as a fallback: the `gate` job
 (`actions: read`) skips a scheduled run when a successful or still queued/running crawl was created since one hour
 before its slot, and drops duplicate cron deliveries (another run within 3 h). Manual runs are never skipped.
 
