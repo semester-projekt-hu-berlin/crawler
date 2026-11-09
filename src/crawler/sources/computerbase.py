@@ -29,7 +29,7 @@ from crawler.discovery import clean_title
 from crawler.ids import canonicalize_url, parse_datetime
 from crawler.models import ArticleRef, Comment, FetchResult
 from crawler.sources.base import IncrementalPager, Source
-from crawler.text import clean_text, html_to_text
+from crawler.text import clean_text, html_to_text, remove_quotes
 
 SITE = "https://www.computerbase.de"
 ATOM = "{http://www.w3.org/2005/Atom}"
@@ -91,11 +91,12 @@ def parse_posts(soup: BeautifulSoup, source_id: str = "computerbase", skip_first
         if not native_id.isdigit() or time_el is None or body is None:
             continue
         parent = None
-        for quote in body.select("blockquote"):
-            src = re.search(r"post:\s*(\d+)", quote.get("data-source") or "")
+        # remove_quotes reads the attributes first: a quote nested in another one is gone once the
+        # outer quote is removed (reading it afterwards raised AttributeError and lost the article)
+        for attrs in remove_quotes(body):
+            src = re.search(r"post:\s*(\d+)", attrs.get("data-source") or "")
             if src and parent is None:
                 parent = src.group(1)
-            quote.decompose()
         for el in body.select("a.username, .bbCodeBlock-title, script, noscript"):
             el.decompose()
         published = parse_datetime(time_el["datetime"])

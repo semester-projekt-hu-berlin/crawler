@@ -361,6 +361,17 @@ def test_computerbase_parsing():
     _no_names(posts)
 
 
+def test_computerbase_nested_quotes_do_not_break_the_thread():
+    # a quote inside a quote: reading the inner one after the outer was removed raised AttributeError
+    # (the whole article was lost, 1-2 per run)
+    html = """<article data-content="post-7"><time datetime="2026-11-04T10:00:00+0100"></time>
+      <div class="bbWrapper"><blockquote data-source="post: 5"><a class="username">Max Muster</a>
+      <blockquote data-source="post: 3">ganz alt</blockquote>alt</blockquote>Stimmt so nicht.</div></article>"""
+    posts = cb_posts(BeautifulSoup(html, "lxml"))
+    assert [(c.native_id, c.native_parent_id, c.text) for c in posts] == [("7", "5", "Stimmt so nicht.")]
+    _no_names(posts)
+
+
 def test_computerbase_fetch_reads_newest_page_first_and_stores_thread():
     url = "https://www.computerbase.de/news/gaming/metro-dlss-5-nr.99971/"
     base = "https://www.computerbase.de/forum/threads/nvidia-dlss-5-metro.2280699/"
