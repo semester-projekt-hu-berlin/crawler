@@ -41,9 +41,12 @@ FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "meinungspuls-hu")
 FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)")
 
 
-# Per-source caps. Why: Firestore cost, the analysis capacity (it can process ~14,700 new comments
-# a day within its Firestore share, and a backlog plus new analysis features need headroom) and
-# the German focus of the project. All sources together must stay at or below
+# Per-source caps. Why: every stored comment costs one write here plus about five reads and two
+# writes in the analysis, and the project's Firestore budget is small. The caps follow the measured
+# yield of each source (mentions of tracked entities per 100 stored comments, see "Yield per source"
+# in the README): sources that mostly produce comments without any tracked entity are cut, high-yield
+# sources may take everything their site offers, and the right-leaning, public/centre and
+# left-leaning news sources are kept in balance. All sources together must stay at or below
 # DAILY_COMMENT_TARGET new comments a day.
 #
 # DAILY_COMMENT_CAPS: new comments per source and day. The crawl runs RUNS_PER_DAY times a day,
@@ -54,43 +57,43 @@ FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)")
 #   articles already tracked continue (complete threads), so the cap is a ceiling for new work,
 #   and the real volume of these sources is what the measurements in the README show.
 RUNS_PER_DAY = 2
-DAILY_COMMENT_TARGET = 11_000
+DAILY_COMMENT_TARGET = 9_500
 DAILY_COMMENT_CAPS: dict[str, int] = {
     # social media
-    "bluesky": 2_300,  # 2,000 search (targeted + sample) + 300 "Deutsche Politik" feed
-    "bluesky_jetstream": 700,
-    "mastodon": 800,
-    "feddit": 250,
+    "bluesky": 1_800,  # 200 "Deutsche Politik" feed + 1,600 search (90 % entity searches, 10 % sample)
+    "bluesky_jetstream": 150,  # off by default (DEFAULT_DISABLED_SOURCES)
+    "mastodon": 600,
+    "feddit": 150,
     # news sites
     "tagesschau": 1_100,
     "tichyseinblick": 1_100,
-    "taz": 300,
-    "freitag": 60,
-    "cicero": 150,
+    "taz": 500,
+    "freitag": 100,
+    "cicero": 200,
     "achgut": 100,
     "netzpolitik": 30,
     "ruhrbarone": 20,
     "apollo": 300,  # deterministic ~10 % sample (see ApolloNews.sample_share)
-    "overton": 250,
-    "lawblog": 60,
-    "br24": 600,  # ~2,000/day available: most-commented stories, newest comments first
-    "rbb24": 250,
+    "overton": 300,
+    "lawblog": 20,  # off by default
+    "br24": 400,  # ~2,000/day available: most-commented stories, newest comments first
+    "rbb24": 300,
     # tech / app blogs (PRODUCT entities)
-    "caschy": 220,
-    "iphoneticker": 250,
-    "ifun": 150,
-    "appgefahren": 100,
-    "computerbase": 400,
+    "caschy": 200,
+    "iphoneticker": 180,
+    "ifun": 80,
+    "appgefahren": 60,
+    "computerbase": 300,
     # forums
-    "wallstreet": 300,
+    "wallstreet": 220,
     "allmystery": 300,
-    "finanztip": 200,
-    "goingelectric": 150,
+    "finanztip": 60,  # off by default
+    "goingelectric": 80,
     "kuketz": 100,
-    "bundestag": 150,
+    "bundestag": 40,  # off by default
     # Austria / Switzerland, kept small on purpose (German focus)
     "derstandard": 200,
-    "blick": 100,
+    "blick": 60,
 }
 # Caps besides the comment cap:
 #   max_new_articles_per_run: new articles taken per run, most relevant first (revisits of
@@ -109,8 +112,23 @@ SOURCE_LIMITS: dict[str, dict[str, int]] = {
 }
 LIMIT_KEYS = ("max_new_articles_per_run", "max_comments_per_run", "strict")
 
-# Sources switched off entirely, e.g. CRAWLER_DISABLED_SOURCES=derstandard,blick
-DISABLED_SOURCES = {s.strip().lower() for s in os.environ.get("CRAWLER_DISABLED_SOURCES", "").split(",") if s.strip()}
+
+def _id_set(env: str) -> set[str]:
+    return {s.strip().lower() for s in os.environ.get(env, "").split(",") if s.strip()}
+
+
+# Sources that are not part of ``--sources all`` (they still run when named explicitly):
+#   bluesky_jetstream  random German posts: 12 % mention a tracked entity (19 mentions per 100
+#                      posts); the entity searches of ``bluesky`` deliver 126 per 100, and the
+#                      5-minute live window was most of the run time
+#   lawblog            the comment feed is almost only foreign-language spam (16 of 17 comments
+#                      in a dry run; 5 mentions/day)
+#   finanztip          16 mentions per 100 comments (10 a day) for ~20 requests and 80 s per run
+#   bundestag          no forum post in 29 runs (14 days) for ~28 requests and 50 s per run
+DEFAULT_DISABLED_SOURCES = {"bluesky_jetstream", "lawblog", "finanztip", "bundestag"}
+# Switch further sources off with CRAWLER_DISABLED_SOURCES=derstandard,blick; switch default-off
+# sources back on with CRAWLER_ENABLED_SOURCES=bundestag.
+DISABLED_SOURCES = (DEFAULT_DISABLED_SOURCES | _id_set("CRAWLER_DISABLED_SOURCES")) - _id_set("CRAWLER_ENABLED_SOURCES")
 
 
 def source_limits(overrides: list[str] | None = None) -> dict[str, dict[str, int]]:

@@ -169,9 +169,12 @@ def test_bluesky_samples_hourly_windows():
     assert len(http.calls) == 12
     assert http.calls[0]["until"] == "2026-10-22T12:00:00Z" and http.calls[0]["since"] == "2026-10-22T11:00:00Z"
     assert all(c["lang"] == "de" for c in http.calls)
+    # a small budget is still spread over all hours (it used to take only the newest ones)
     http = _Http()
-    Bluesky(http).sample(until - timedelta(hours=12), until, max_items=300)
-    assert len(http.calls) == 3
+    Bluesky(http).sample(until - timedelta(hours=12), until, max_items=96)
+    assert len(http.calls) == 12 and {c["limit"] for c in http.calls} == {16}  # 8 per hour, asked with headroom
+    http = _Http()
+    assert Bluesky(http).sample(until - timedelta(hours=12), until, max_items=0) == [] and not http.calls
 
 
 def test_day_article_groups_posts_by_berlin_day():

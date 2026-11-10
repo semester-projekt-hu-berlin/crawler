@@ -86,7 +86,7 @@ class FakeSource(Source):
 
 
 def _c(native, minutes_ago, parent=None):
-    return Comment("fake", native, f"Text {native}", NOW - timedelta(minutes=minutes_ago), parent, 1)
+    return Comment("fake", native, f"Ein Text {native}", NOW - timedelta(minutes=minutes_ago), parent, 1)
 
 
 def test_comment_doc_matches_schema_and_has_no_author():

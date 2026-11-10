@@ -249,7 +249,7 @@ def test_jetstream_failover_cap_optout_and_ids():
     assert reply.parent_id == texts[0].id
     # same comment id as the Bluesky search source -> stored once
     uri = f"at://{DID}/app.bsky.feed.post/1"
-    search = parse_posts([{"uri": uri, "indexedAt": "2026-10-22T11:27:49Z", "record": {"text": "x"}}])[0]
+    search = parse_posts([{"uri": uri, "indexedAt": "2026-10-22T11:27:49Z", "record": {"text": "ein Post"}}])[0]
     assert texts[0].id == search.id == comment_id("bluesky", uri)
     assert texts[0].source_id == "bluesky_jetstream" and texts[0].upvotes is None
     assert items[0].article.url.startswith("https://bsky.app/?feed=jetstream-de&day=")
@@ -284,10 +284,12 @@ def test_comment_id_namespace_default_unchanged():
 
 
 def test_mastodon_instances():
-    for host in ("mastodontech.de", "social.anoxinon.de", "bonn.social", "nerdculture.de", "machteburch.social",
-                 "det.social"):  # fmt: skip
+    for host in ("troet.cafe", "mastodon.de", "norden.social", "mastodontech.de", "social.anoxinon.de"):
         assert host in INSTANCES
     assert "swiss.social" not in INSTANCES and "wien.rocks" not in INSTANCES
+    # dropped 9 Nov 2026: rate-limited (429) or hardly any tracked entity in their posts
+    for host in ("det.social", "hessen.social", "bonn.social", "nerdculture.de", "machteburch.social"):
+        assert host not in INSTANCES
     assert len(set(INSTANCES)) == len(INSTANCES)
 
 

@@ -88,7 +88,7 @@ def test_mastodon_thins_evenly_over_instances(monkeypatch):
 
     def statuses(instance, n):
         return [{"id": str(i), "created_at": f"2026-10-23T10:{i % 60:02d}:00Z", "visibility": "public",
-                 "language": "de", "reblog": None, "content": f"<p>Beitrag {i}</p>",
+                 "language": "de", "reblog": None, "content": f"<p>Ein Beitrag {i}</p>",
                  "account": {"bot": False, "noindex": False, "indexable": True}} for i in range(n)]  # fmt: skip
 
     class Http:

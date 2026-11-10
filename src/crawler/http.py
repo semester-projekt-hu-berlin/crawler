@@ -33,6 +33,11 @@ class _HostThrottle:
                 time.sleep(self._next_allowed - now)
             self._next_allowed = time.monotonic() + delay
 
+    def defer(self, seconds: float) -> None:
+        """No request to this host for ``seconds`` (a backoff the caller does not wait for itself)."""
+        with self._lock:
+            self._next_allowed = max(self._next_allowed, time.monotonic() + seconds)
+
 
 class PoliteSession:
     """Wraps :class:`requests.Session`. Every request
@@ -73,12 +78,14 @@ class PoliteSession:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         allow_404: bool = False,
+        max_retries: int = MAX_RETRIES,
     ) -> requests.Response:
         """GET with robots check, throttling and retries. Redirects are followed manually
-        (max 5) so that every redirect target is checked against robots.txt as well."""
+        (max 5) so that every redirect target is checked against robots.txt as well.
+        ``max_retries=0`` gives up after the first failed attempt (429, 5xx, network error)."""
         current = requests.Request("GET", url, params=params).prepare().url or url
         for _ in range(6):
-            resp = self._get_once(current, headers=headers)
+            resp = self._get_once(current, headers=headers, max_retries=max_retries)
             if resp.is_redirect and resp.headers.get("Location"):
                 current = urljoin(current, resp.headers["Location"])
                 continue
@@ -88,7 +95,9 @@ class PoliteSession:
             return resp
         raise requests.TooManyRedirects(f"too many redirects for {url}")
 
-    def _get_once(self, full_url: str, headers: dict[str, str] | None) -> requests.Response:
+    def _get_once(
+        self, full_url: str, headers: dict[str, str] | None, max_retries: int = MAX_RETRIES
+    ) -> requests.Response:
         if not self.robots.can_fetch(full_url):
             log_event(log, "http.robots_disallowed", logging.WARNING, url=full_url)
             raise RobotsDisallowed(full_url)
@@ -97,7 +106,8 @@ class PoliteSession:
         throttle = self._throttle(host)
 
         last_exc: Exception | None = None
-        for attempt in range(MAX_RETRIES + 1):
+        for attempt in range(max_retries + 1):
+            last_attempt = attempt == max_retries
             throttle.wait(delay)
             with self._lock:
                 self.request_count += 1
@@ -106,7 +116,10 @@ class PoliteSession:
             except requests.RequestException as exc:
                 last_exc = exc
                 log_event(log, "http.error", logging.WARNING, url=full_url, attempt=attempt, error=str(exc))
-                time.sleep(2**attempt * 2)
+                if last_attempt:  # nobody waits here any more; the host still gets its pause
+                    throttle.defer(2**attempt * 2)
+                else:
+                    time.sleep(2**attempt * 2)
                 continue
             _ = resp.content  # read the body so the raw (compressed) byte count is final
             try:
@@ -131,7 +144,10 @@ class PoliteSession:
                     backoff=backoff,
                 )
                 last_exc = requests.HTTPError(f"{resp.status_code} for {full_url}", response=resp)
-                time.sleep(min(backoff, 120))
+                if last_attempt:
+                    throttle.defer(min(backoff, 120))
+                else:
+                    time.sleep(min(backoff, 120))
                 continue
             return resp
         assert last_exc is not None

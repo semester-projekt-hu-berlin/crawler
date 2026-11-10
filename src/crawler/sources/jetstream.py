@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -36,7 +37,7 @@ from urllib.parse import urlencode
 from crawler.config import USER_AGENT
 from crawler.models import Comment
 from crawler.sources.base import StreamItem, StreamSource
-from crawler.sources.bluesky import OPT_OUT_LABEL, post_text
+from crawler.sources.bluesky import OPT_OUT_LABEL, PER_AUTHOR, post_text, reject_reason
 
 HOSTS = (
     "jetstream2.us-east.bsky.network",
@@ -176,6 +177,7 @@ class BlueskyJetstream(StreamSource):
         allowed = self.opted_in(sorted({p[0] for p in posts}))
         uris = {f"at://{did}/{COLLECTION}/{rkey}" for did, rkey, _, _ in posts if did in allowed}
         items: list[StreamItem] = []
+        per_author: Counter[str] = Counter()
         for did, rkey, record, time_us in posts:
             uri = f"at://{did}/{COLLECTION}/{rkey}"
             if uri not in uris:
@@ -183,6 +185,12 @@ class BlueskyJetstream(StreamSource):
             text = post_text(record)
             if not text:
                 continue
+            # same content filters and per-account limit as the Bluesky search source
+            reason = reject_reason(record, text) or ("per_author" if per_author[did] >= PER_AUTHOR else None)
+            if reason is not None:
+                self.filtered[reason] += 1
+                continue
+            per_author[did] += 1
             parent = ((record.get("reply") or {}).get("parent") or {}).get("uri")
             published = datetime.fromtimestamp(time_us / 1e6, UTC)
             comment = Comment(

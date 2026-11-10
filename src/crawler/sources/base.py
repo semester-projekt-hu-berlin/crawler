@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
@@ -153,6 +154,8 @@ class StreamSource(ABC):
     def __init__(self, http: PoliteSession) -> None:
         self.http = http
         self.log = logging.getLogger(f"crawler.sources.{self.id}")
+        # Items the adapter itself dropped in this run, by reason (shown in the run summary).
+        self.filtered: Counter[str] = Counter()
 
     def source_doc(self) -> dict:
         return {

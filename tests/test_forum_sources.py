@@ -88,10 +88,42 @@ def test_daily_caps_cover_every_source_and_stay_within_target():
     for sid, cap in DAILY_COMMENT_CAPS.items():
         assert SOURCE_LIMITS[sid]["max_comments_per_run"] == cap // RUNS_PER_DAY
     limits = source_limits([])
-    assert limits["bluesky"]["max_comments_per_run"] == 1150  # 1,000 search + 150 feed per run
-    assert limits["br24"] == {"max_comments_per_run": 300, "max_new_articles_per_run": 4, "strict": 1}
+    assert limits["bluesky"]["max_comments_per_run"] == 900  # 800 search + 100 feed per run
+    assert limits["br24"] == {"max_comments_per_run": 200, "max_new_articles_per_run": 4, "strict": 1}
     for sid in ("rbb24", "allmystery", "finanztip", "goingelectric", "kuketz", "bundestag"):
         assert limits[sid]["max_comments_per_run"] <= 150
+
+
+def test_caps_keep_the_political_balance_and_cut_low_yield_sources():
+    cap = DAILY_COMMENT_CAPS
+    right = cap["tichyseinblick"] + cap["apollo"] + cap["achgut"] + cap["cicero"]
+    centre = cap["tagesschau"] + cap["br24"] + cap["rbb24"]
+    left = cap["taz"] + cap["freitag"] + cap["overton"]
+    # no camp of news sources may get more than twice the room of another one
+    assert max(right, centre, left) <= 2 * min(right, centre, left)
+    # sources with few tracked entities per comment (measured 2-8 Nov 2026) stay small
+    for sid in ("bluesky_jetstream", "lawblog", "finanztip", "bundestag", "feddit", "ifun"):
+        assert cap[sid] <= 150
+    # Austria and Switzerland stay a side note (German focus)
+    assert cap["derstandard"] + cap["blick"] <= 300
+
+
+def test_default_disabled_sources_are_known_and_can_be_switched_back_on(monkeypatch):
+    import importlib
+
+    import crawler.config as config
+
+    assert set(SOURCES) >= config.DEFAULT_DISABLED_SOURCES
+    assert {"bluesky_jetstream", "lawblog", "finanztip", "bundestag"} <= config.DISABLED_SOURCES
+    assert "goingelectric" not in config.DISABLED_SOURCES  # readable again since the robots.txt fix
+    monkeypatch.setenv("CRAWLER_ENABLED_SOURCES", "bundestag")
+    monkeypatch.setenv("CRAWLER_DISABLED_SOURCES", "blick")
+    try:
+        importlib.reload(config)
+        assert "bundestag" not in config.DISABLED_SOURCES and "blick" in config.DISABLED_SOURCES
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
 
 
 # ------------------------------------------------------------------ BR24

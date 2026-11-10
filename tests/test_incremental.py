@@ -29,7 +29,7 @@ def _ref(published_ago_h, crawled_ago_h=None, now=MORNING, **kw):
 
 
 def _c(native, at, parent=None):
-    return Comment("s", native, f"t{native}", at, parent, 0)
+    return Comment("s", native, f"Kommentar Nummer {native}", at, parent, 0)
 
 
 # ------------------------------------------------------------------ revisit policy
@@ -160,7 +160,7 @@ def _ds_forum(total):
 
 def _ds_page(times, has_next):
     edges = [
-        {"node": {"id": f"p{t.isoformat()}", "lifecycleStatus": "Published", "text": "x",
+        {"node": {"id": f"p{t.isoformat()}", "lifecycleStatus": "Published", "text": "Ein Kommentar",
                   "history": {"created": t.isoformat()}, "replies": []}}
         for t in times
     ]  # fmt: skip

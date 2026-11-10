@@ -22,10 +22,14 @@ from crawler.sources import SOURCES
 log = logging.getLogger("crawler")
 
 
+def _enabled_sources() -> list[str]:
+    return [sid for sid in SOURCES if sid not in DISABLED_SOURCES]
+
+
 def _parse_sources(value: str) -> list[str]:
     if value.strip().lower() == "all":
-        # "all" leaves out sources switched off via CRAWLER_DISABLED_SOURCES
-        return [sid for sid in SOURCES if sid not in DISABLED_SOURCES]
+        # "all" leaves out sources that are off by default or via CRAWLER_DISABLED_SOURCES
+        return _enabled_sources()
     ids = [v.strip().lower() for v in value.split(",") if v.strip()]
     unknown = [i for i in ids if i not in SOURCES]
     if unknown:
@@ -44,8 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--sources",
         type=_parse_sources,
-        default=list(SOURCES),
-        help="comma separated source ids or 'all' (default: all)",
+        default=None,
+        help="comma separated source ids or 'all' (default: all); 'all' leaves out the sources that are "
+        "switched off (config.DISABLED_SOURCES), naming a source runs it anyway",
     )
     run.add_argument(
         "--max-articles",
@@ -73,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--time-budget-minutes", type=float, default=None, help="stop starting new articles after this many minutes"
     )
+    run.add_argument(
+        "--no-quality-filter",
+        action="store_true",
+        help="store every comment, also those the content filters would drop (too short, not German, …)",
+    )
     run.add_argument("--dry-run", action="store_true", help="do not touch Firestore")
     run.add_argument("--out", help="dry-run only: write comments as JSON lines to this file")
     run.add_argument("--summary-json", help="write the run summary as JSON to this file")
@@ -85,6 +95,8 @@ def build_parser() -> argparse.ArgumentParser:
 def cmd_run(args: argparse.Namespace) -> int:
     from crawler.pipeline import RunOptions, run
 
+    if args.sources is None:
+        args.sources = _enabled_sources()
     store = None
     if not args.dry_run:
         from crawler.firestore import Firestore
@@ -100,6 +112,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             time_budget_s=args.time_budget_minutes * 60 if args.time_budget_minutes else None,
             out=out,
+            quality_filter=not args.no_quality_filter,
         )
         log_event(
             log,
@@ -138,7 +151,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_sources() -> int:
     for sid, cls in SOURCES.items():
         feed = getattr(cls, "news_sitemap", "(stream)")
-        print(f"{sid:15} {cls.source_type:7} {cls.name:40} {cls.domain:28} {cls.country}  {feed}")
+        state = "off" if sid in DISABLED_SOURCES else "on"
+        print(f"{sid:17} {state:3} {cls.source_type:7} {cls.name:40} {cls.domain:28} {cls.country}  {feed}")
     return 0
 
 

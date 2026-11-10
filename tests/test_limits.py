@@ -66,7 +66,8 @@ class CappedSource(Source):
     def fetch(self, ref):
         self.fetched.append(ref.url)
         comments = [
-            Comment(self.id, f"{ref.url}#{j}", "t", NOW - timedelta(minutes=60 - j)) for j in range(self.per_article)
+            Comment(self.id, f"{ref.url}#{j}", "ein Kommentar", NOW - timedelta(minutes=60 - j))
+            for j in range(self.per_article)
         ]
         return FetchResult(ref, comments, len(comments))
 

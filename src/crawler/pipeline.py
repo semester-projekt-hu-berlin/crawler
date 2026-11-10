@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import IO, Any
 
+from crawler import quality
 from crawler.budget import RESERVE_WRITES, Budget, commit_usage
 from crawler.config import (
     COMMENT_OVERLAP,
@@ -66,6 +69,8 @@ class SourceStats:
     comments_new: int = 0
     comments_existing: int = 0
     comments_failed: int = 0
+    # Dropped before storing: too short, not German, repeated link headline, duplicate, … (see quality.py).
+    comments_filtered: int = 0
     duration_s: float = 0.0
     error: str | None = None
 
@@ -83,6 +88,8 @@ class RunOptions:
     dry_run: bool = False
     time_budget_s: float | None = None
     out: IO[str] | None = None  # dry-run JSONL output (comments incl. text)
+    # Drop comments that cannot carry an opinion before storing them (quality.reject_reason).
+    quality_filter: bool = True
 
 
 @dataclass
@@ -105,6 +112,7 @@ class RunSummary:
             "articles_unchanged",
             "comments_new",
             "comments_existing",
+            "comments_filtered",
             "articles_failed",
         )
         return {k: sum(getattr(s, k) for s in self.sources) for k in keys}
@@ -117,12 +125,14 @@ class RunSummary:
     def to_markdown(self) -> str:
         head = (
             "| source | discovered | revisit | crawled | new articles | unchanged | capped | comments seen "
-            "| new comments | failed | seconds | error |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+            "| new comments | filtered | failed | seconds | error |\n"
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
         )
         rows = "".join(
             f"| {s.source} | {s.discovered} | {s.revisit_candidates} | {s.articles_crawled} "
             f"| {s.articles_new} | {s.articles_unchanged} | {s.articles_capped} "
-            f"| {s.comments_seen} | {s.comments_new} | {s.articles_failed + s.comments_failed} "
+            f"| {s.comments_seen} | {s.comments_new} | {s.comments_filtered} "
+            f"| {s.articles_failed + s.comments_failed} "
             f"| {s.duration_s:.0f} | {s.error or ''} |\n"
             for s in self.sources
         )
@@ -195,6 +205,29 @@ def comments_to_store(result: FetchResult) -> tuple[list[Comment], list[Comment]
     return fresh, []
 
 
+def worth_storing(comments: list[Comment], reasons: Counter[str]) -> list[Comment]:
+    """Comments that pass the content filters; the reasons of the dropped ones are counted."""
+    kept = []
+    for c in comments:
+        reason = quality.reject_reason(c.text)
+        if reason is None:
+            kept.append(c)
+        else:
+            reasons[reason] += 1
+    return kept
+
+
+_FINGERPRINT_NOISE = re.compile(r"https?://\S+|[\W\d_]+")
+# Shorter texts ("Guten Morgen zusammen") are legitimately posted by many people.
+FINGERPRINT_MIN_CHARS = 40
+
+
+def fingerprint(text: str) -> str | None:
+    """Key that is equal for reposts of the same text (links, digits and punctuation ignored)."""
+    key = _FINGERPRINT_NOISE.sub(" ", text.lower()).strip()
+    return key if len(key) >= FINGERPRINT_MIN_CHARS else None
+
+
 def comment_doc(c: Comment, article_id: str, crawled_at: datetime) -> dict[str, Any]:
     """Firestore document for a new comment (SCHEMA.md ``comments``). No author fields."""
     return {
@@ -247,6 +280,7 @@ class SourceRunner:
         self.stats = SourceStats(source.id)
         self.log = logging.getLogger(f"crawler.run.{source.id}")
         self.limits = opts.source_limits.get(source.id, {})
+        self.filtered: Counter[str] = Counter()
 
     def _ev(self, event: str, level: int = logging.INFO, **fields: Any) -> None:
         log_event(self.log, event, level, source=self.source.id, **fields)
@@ -281,11 +315,6 @@ class SourceRunner:
                 self._mark_known(ref, fields)
                 if ref.url and ref.id == doc_id:
                     by_id[doc_id] = ref
-            # Discovered articles the query did not return (normally the genuinely new ones).
-            unseen = [aid for aid, r in by_id.items() if not r.known]
-            for path, fields in self.store.batch_get([f"articles/{aid}" for aid in unseen]).items():
-                if fields:
-                    self._mark_known(by_id[path.split("/", 1)[1]], fields)
         refs = sorted(by_id.values(), key=lambda r: priority(r, now), reverse=True)
         due = [r for r in refs if revisit_due(r, now)]
         self.stats.articles_skipped_recent = len(refs) - len(due)
@@ -296,8 +325,26 @@ class SourceRunner:
             known = [r for r in due if r.known]
             new = self.source.rank_new([r for r in due if not r.known], max_new)
             self.stats.articles_capped += max(0, len(new) - max_new)
-            due = known + new[:max_new]
+            due = known + self._confirm_new(new[:max_new], now)
+        else:
+            due = self._confirm_new(due, now)
         return due[: self.opts.max_articles]
+
+    def _confirm_new(self, refs: list[ArticleRef], now: datetime) -> list[ArticleRef]:
+        """Look up the articles of ``refs`` the revisit query did not return (normally the genuinely
+        new ones; an article can also be older in Firestore than the feed says) and drop those that
+        turn out to be tracked and not due. Only articles that are about to be crawled are read:
+        a capped source discovers hundreds of articles per run and takes a handful.
+        """
+        unseen = {r.id: r for r in refs if not r.known}
+        if self.store is None or not unseen:
+            return refs
+        for path, fields in self.store.batch_get([f"articles/{aid}" for aid in unseen]).items():
+            if fields:
+                self._mark_known(unseen[path.split("/", 1)[1]], fields)
+        due = [r for r in refs if revisit_due(r, now)]
+        self.stats.articles_skipped_recent += len(refs) - len(due)
+        return due
 
     @staticmethod
     def _mark_known(ref: ArticleRef, fields: dict[str, Any]) -> None:
@@ -318,6 +365,11 @@ class SourceRunner:
         """Write new comments; return the article write if anything changed (None in dry-run)."""
         ref = result.article
         fresh, check = comments_to_store(result)
+        if self.opts.quality_filter:
+            reasons: Counter[str] = Counter()
+            fresh, check = worth_storing(fresh, reasons), worth_storing(check, reasons)
+            self.filtered.update(reasons)
+            self.stats.comments_filtered += sum(reasons.values())
         if check and self.store is not None:
             found = self.store.batch_get([f"comments/{c.id}" for c in check])
             missing = [c for c in check if found.get(f"comments/{c.id}") is None]
@@ -469,6 +521,8 @@ class SourceRunner:
             self.stats.error = f"{type(exc).__name__}: {exc}"[:300]
             self._ev("source.failed", logging.ERROR, error=self.stats.error)
         self.stats.duration_s = time.monotonic() - t0
+        if self.filtered:
+            self._ev("comments.filtered", **self.filtered)
         self._ev("source.done", **{k: v for k, v in asdict(self.stats).items() if k != "source"})
         return self.stats
 
@@ -493,6 +547,28 @@ class StreamRunner:
         if self.last_crawl_at is not None:
             since = max(since, self.last_crawl_at - self.source.overlap)
         return since
+
+    def drop_noise(self, items: list[StreamItem]) -> list[StreamItem]:
+        """Content filters (quality.py); social sources also lose reposts of a text already in this run."""
+        reasons: Counter[str] = Counter(self.source.filtered)  # dropped by the adapter itself
+        kept: list[StreamItem] = []
+        seen: set[str] = set()
+        social = self.source.source_type == "social"
+        for item in items:
+            reason = quality.reject_reason(item.comment.text) if self.opts.quality_filter else None
+            key = fingerprint(item.comment.text) if social and self.opts.quality_filter and reason is None else None
+            if key is not None and key in seen:
+                reason = "duplicate"
+            if reason is not None:
+                reasons[reason] += 1
+                continue
+            if key is not None:
+                seen.add(key)
+            kept.append(item)
+        self.stats.comments_filtered = sum(reasons.values())
+        if reasons:
+            self._ev("comments.filtered", **reasons)
+        return kept
 
     def drop_stored(self, items: list[StreamItem]) -> list[StreamItem]:
         """Items from the overlap window may already be stored: check with a read, never re-insert."""
@@ -527,7 +603,7 @@ class StreamRunner:
             items = self.source.fetch_since(since, now, max_items)
             self.stats.comments_seen = len(items)
             self._ev("source.start", since=since.isoformat(timespec="seconds"), items=len(items))
-            self.store_items(self.drop_stored(items), now)
+            self.store_items(self.drop_stored(self.drop_noise(items)), now)
         except BudgetExhausted:
             pass
         except Exception as exc:  # noqa: BLE001

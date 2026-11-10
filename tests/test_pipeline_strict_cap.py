@@ -10,7 +10,12 @@ def _result(n: int) -> FetchResult:
     ref = ArticleRef(url="https://example.org/a", source_id="derstandard")
     t0 = datetime(2026, 10, 26, tzinfo=UTC)
     comments = [
-        Comment(source_id="derstandard", native_id=str(i), text=f"t{i}", published_at=t0 + timedelta(minutes=i))
+        Comment(
+            source_id="derstandard",
+            native_id=str(i),
+            text=f"Kommentar Nummer {i}",
+            published_at=t0 + timedelta(minutes=i),
+        )
         for i in range(n)
     ]
     return FetchResult(article=ref, comments=comments)

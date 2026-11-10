@@ -5,51 +5,57 @@ instances (their ``timelines_access.live_feeds.local`` is ``public``) and paged 
 with ``max_id``. We keep only public, German-language (``language`` = ``de``) original
 posts (no boosts) by human accounts that have not opted out of indexing
 (``account.noindex``), have not declined full-text indexing (``account.indexable``)
-and are not bots. Stored are the text (mentions removed),
-the timestamp and the reply structure; no handles, account ids or display names.
+and are not bots. Posts that only repeat the headline of their link preview (``card``), posts
+without content or in another language (``quality.py``) and more than ``PER_AUTHOR`` posts of one
+account per run are dropped (the account id is only held in memory for this count). Stored are
+the text (mentions removed), the timestamp and the reply structure; no handles, account ids or
+display names.
 
 Posts are grouped into one pseudo-article per instance and Berlin day.
 robots.txt of the instances only disallows ``/media_proxy/``, ``/interact/`` and
 ``/api/v1/instance/domain_blocks``. Mastodon's API limit (300 requests / 5 min) is far
-above our rate.
+above our rate; an instance that answers 429 anyway is asked once more and then left alone until
+the next run.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
 
+from crawler import quality
 from crawler.ids import parse_datetime
 from crawler.models import Comment
 from crawler.sources.base import StreamItem, StreamSource
 from crawler.text import clean_text
 
 # German instances whose local timeline is public (``timelines_access.live_feeds.local == "public"``)
-# and whose robots.txt allows the API. Usable posts/day (German, not opted out) measured 23 Oct 2026.
+# and whose robots.txt allows the API. Stored posts/day and mentions of tracked entities per 100
+# posts, measured in Firestore for 2-8 Nov 2026.
 INSTANCES = (
-    "troet.cafe",  # ~620
-    "mastodon.de",  # ~290
-    "norden.social",  # ~170
-    "nrw.social",  # ~130
-    "ruhr.social",  # ~120
-    "berlin.social",  # ~70
-    "social.cologne",  # ~65
-    "muenchen.social",  # ~55
-    "digitalcourage.social",  # ~55
-    "hessen.social",  # ~45
-    "dresden.network",  # ~40
-    # added 23 Oct 2026 (robots.txt: only /media_proxy/, /interact/, domain_blocks disallowed)
-    "mastodontech.de",
-    "social.anoxinon.de",
-    "bonn.social",
-    "nerdculture.de",
-    "machteburch.social",
-    "det.social",  # answered 429 once: PoliteSession backs off (Retry-After), then the instance is skipped
+    "norden.social",  # 110/day, 37
+    "troet.cafe",  # 83/day, 44
+    "nrw.social",  # 74/day, 27
+    "mastodon.de",  # 69/day, 71
+    "dresden.network",  # 34/day, 46
+    "ruhr.social",  # 33/day, 28
+    "social.cologne",  # 29/day, 42
+    "digitalcourage.social",  # 28/day, 96
+    "berlin.social",  # 27/day, 37
+    "social.anoxinon.de",  # 12/day, 43
+    "mastodontech.de",  # 12/day, 46
+    "muenchen.social",  # 9/day, 38
 )
+# Removed 9 Nov 2026: det.social (429 in every second run, 4 posts/day), hessen.social (429 in
+# every fourth run, 19 mentions per 100 posts), bonn.social (17 per 100), nerdculture.de (mostly
+# English, 4 per 100), machteburch.social (1 post/day).
 PAGE_LIMIT = 40
 MAX_PAGES = 40
+# Posts of one account stored per instance and run.
+PER_AUTHOR = 3
 
 
 def status_text(html: str) -> str:
@@ -75,8 +81,28 @@ def keep_status(s: dict[str, Any]) -> bool:
     )
 
 
-def parse_statuses(statuses: list[dict[str, Any]], instance: str, source_id: str = "mastodon") -> list[Comment]:
+def reject_reason(status: dict[str, Any], text: str) -> str | None:
+    """Why a post is not stored (``None``: keep): no content, not German, or just a link's headline."""
+    reason = quality.reject_reason(text)
+    card = status.get("card") or {}
+    if reason is None and quality.repeats_link_card(
+        text, str(card.get("title") or ""), str(card.get("description") or ""), [str(card.get("url") or "")]
+    ):
+        reason = "link_card"
+    return reason
+
+
+def parse_statuses(
+    statuses: list[dict[str, Any]],
+    instance: str,
+    source_id: str = "mastodon",
+    filtered: Counter[str] | None = None,
+) -> list[Comment]:
+    """Statuses as comments (same order). Posts dropped for their content or because their author
+    already has ``PER_AUTHOR`` posts in this batch are counted in ``filtered``."""
     ids = {str(s.get("id")) for s in statuses}
+    per_author: Counter[str] = Counter()
+    filtered = filtered if filtered is not None else Counter()
     out: list[Comment] = []
     for s in statuses:
         if not keep_status(s):
@@ -85,6 +111,14 @@ def parse_statuses(statuses: list[dict[str, Any]], instance: str, source_id: str
         text = status_text(s.get("content") or "")
         if not published or not text:
             continue
+        reason = reject_reason(s, text)
+        author = str((s.get("account") or {}).get("id") or "")
+        if reason is None and author and per_author[author] >= PER_AUTHOR:
+            reason = "per_author"
+        if reason is not None:
+            filtered[reason] += 1
+            continue
+        per_author[author] += 1
         parent = s.get("in_reply_to_id")
         out.append(
             Comment(
@@ -103,7 +137,7 @@ def parse_statuses(statuses: list[dict[str, Any]], instance: str, source_id: str
 class Mastodon(StreamSource):
     id = "mastodon"
     name = "Mastodon (deutschsprachige Instanzen)"
-    domain = "troet.cafe, mastodon.de, norden.social, … (17 instances)"
+    domain = "troet.cafe, mastodon.de, norden.social, … (12 instances)"
     country = "DE"
     topic = "general"
     source_type = "social"
@@ -119,7 +153,10 @@ class Mastodon(StreamSource):
                     params = {"local": "true", "limit": PAGE_LIMIT}
                     if max_id:
                         params["max_id"] = max_id
-                    page = self.http.get_json(f"https://{instance}/api/v1/timelines/public", params=params)
+                    # one retry only: an instance that is down or rate-limits us is skipped for this run
+                    page = self.http.get_json(
+                        f"https://{instance}/api/v1/timelines/public", params=params, max_retries=1
+                    )
                     if not page:
                         break
                     statuses.extend(page)
@@ -129,9 +166,8 @@ class Mastodon(StreamSource):
                         break
             except Exception as exc:  # noqa: BLE001 - one unreachable instance must not stop the others
                 self.log.warning("instance %s failed: %s", instance, exc)
-            per_instance[instance] = [
-                c for c in parse_statuses(statuses, instance, self.id) if since <= c.published_at <= until
-            ]
+            in_window = [s for s in statuses if (t := parse_datetime(s.get("created_at"))) and since <= t <= until]
+            per_instance[instance] = parse_statuses(in_window, instance, self.id, self.filtered)
         total = sum(len(v) for v in per_instance.values())
         items: list[StreamItem] = []
         for instance, comments in per_instance.items():
