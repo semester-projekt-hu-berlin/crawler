@@ -174,7 +174,7 @@ class GoingElectric(StreamSource):
                     self.http.get(f"{FORUM}/viewtopic.php?p={post.post_id}").text, self.id
                 )
             except Exception as exc:  # noqa: BLE001
-                self.log.warning("post %s failed: %s", post.post_id, type(exc).__name__)
+                self.log.warning("post %s failed: %s: %s", post.post_id, type(exc).__name__, str(exc)[:160])
                 continue
             if tid and tid not in topics:
                 topics[tid] = (post.topic_title or title, post.forum)
