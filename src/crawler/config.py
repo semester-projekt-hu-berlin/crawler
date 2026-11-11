@@ -125,7 +125,9 @@ def _id_set(env: str) -> set[str]:
 #                      in a dry run; 5 mentions/day)
 #   finanztip          16 mentions per 100 comments (10 a day) for ~20 requests and 80 s per run
 #   bundestag          no forum post in 29 runs (14 days) for ~28 requests and 50 s per run
-DEFAULT_DISABLED_SOURCES = {"bluesky_jetstream", "lawblog", "finanztip", "bundestag"}
+#   goingelectric      the forum answers 403 Forbidden to topic pages from GitHub Actions IPs (the feed
+#                      loads, every post page fails); works from other networks
+DEFAULT_DISABLED_SOURCES = {"bluesky_jetstream", "lawblog", "finanztip", "bundestag", "goingelectric"}
 # Switch further sources off with CRAWLER_DISABLED_SOURCES=derstandard,blick; switch default-off
 # sources back on with CRAWLER_ENABLED_SOURCES=bundestag.
 DISABLED_SOURCES = (DEFAULT_DISABLED_SOURCES | _id_set("CRAWLER_DISABLED_SOURCES")) - _id_set("CRAWLER_ENABLED_SOURCES")

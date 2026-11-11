@@ -372,7 +372,8 @@ def test_all_leaves_out_default_disabled_sources_but_naming_one_runs_it():
 
     ids = cli._parse_sources("all")
     assert "bluesky_jetstream" not in ids and "bundestag" not in ids and "lawblog" not in ids and "finanztip" not in ids
-    assert {"bluesky", "mastodon", "tagesschau", "tichyseinblick", "taz", "goingelectric"} <= set(ids)
+    assert "goingelectric" not in ids
+    assert {"bluesky", "mastodon", "tagesschau", "tichyseinblick", "taz"} <= set(ids)
     assert cli._parse_sources("bundestag,bluesky_jetstream") == ["bundestag", "bluesky_jetstream"]
     args = cli.build_parser().parse_args(["run", "--dry-run"])
     assert args.sources is None and args.no_quality_filter is False  # default: the enabled sources

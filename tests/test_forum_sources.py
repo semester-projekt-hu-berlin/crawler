@@ -115,7 +115,7 @@ def test_default_disabled_sources_are_known_and_can_be_switched_back_on(monkeypa
 
     assert set(SOURCES) >= config.DEFAULT_DISABLED_SOURCES
     assert {"bluesky_jetstream", "lawblog", "finanztip", "bundestag"} <= config.DISABLED_SOURCES
-    assert "goingelectric" not in config.DISABLED_SOURCES  # readable again since the robots.txt fix
+    assert "goingelectric" in config.DEFAULT_DISABLED_SOURCES  # 403 from GitHub Actions IPs
     monkeypatch.setenv("CRAWLER_ENABLED_SOURCES", "bundestag")
     monkeypatch.setenv("CRAWLER_DISABLED_SOURCES", "blick")
     try:
