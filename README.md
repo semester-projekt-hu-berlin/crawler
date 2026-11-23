@@ -414,7 +414,6 @@ Researched on 26 Oct 2026, kept for later (or for a decision of the team):
 | stern.de | Bot protection (403 for non-browser clients). |
 | sueddeutsche.de, waz.de (Funke) | Comments are served by `*.engagently.com`; its robots.txt is unreachable (connection closed), which RFC 9309 treats as complete disallow. |
 | ksta.de | Public comment API (`community-api.kdm.koeln`, robots.txt 404) works, but very few comments per article; not worth an adapter for now (easy to add). |
-| cicero.de | Drupal site whose comments we could not find in the pages without login; no endpoint. |
 | jungewelt.de | `Disallow: /comment.php` and `/leserbrief/`. |
 | kicker.de | `Disallow: /news/fussball*` (and the other sports) plus `/kickerapi*`. |
 | transfermarkt.de | robots.txt allows everything, but the site answers non-browser clients with a bot challenge (HTTP 202 interstitial). Not circumvented. |
@@ -686,7 +685,7 @@ were analysed. About 2,600 document reads in total.
 | bluesky_jetstream | social, mixed | 336 | 63 | 19 (18) | 12 % | 700 → 150 (off) | 0 |
 | finanztip | finance | 64 | 10 | 16 (13) | 13 % | 200 → 60 (off) | 0 |
 | lawblog | law | 39 | 5 | 14 (15) | 11 % | 60 → 20 (off) | 0 |
-| goingelectric | tech | 0 | 0 | – | – | 150 → 80 | 45 |
+| goingelectric | tech | 0 | 0 | – | – | 150 → 80 (off by default since 23 Nov: 403) | 0 |
 | bundestag | petitions | 0 | 0 | – | – | 150 → 40 (off) | 0 |
 | **total** | | **7,863** | **4,931** | **63** | **38 %** | **10,990 → 9,050** (8,780 without the sources that are off) | **~6,770** |
 
