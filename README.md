@@ -685,7 +685,7 @@ were analysed. About 2,600 document reads in total.
 | bluesky_jetstream | social, mixed | 336 | 63 | 19 (18) | 12 % | 700 → 150 (off) | 0 |
 | finanztip | finance | 64 | 10 | 16 (13) | 13 % | 200 → 60 (off) | 0 |
 | lawblog | law | 39 | 5 | 14 (15) | 11 % | 60 → 20 (off) | 0 |
-| goingelectric | tech | 0 | 0 | – | – | 150 → 80 (off by default since 23 Nov: 403) | 0 |
+| goingelectric | tech | 0 | 0 | – | – | 150 → 80 (off by default since 11 Nov: 403) | 0 |
 | bundestag | petitions | 0 | 0 | – | – | 150 → 40 (off) | 0 |
 | **total** | | **7,863** | **4,931** | **63** | **38 %** | **10,990 → 9,050** (8,780 without the sources that are off) | **~6,770** |
 
