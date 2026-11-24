@@ -782,7 +782,10 @@ before 9 Nov 2026: ~8.5k writes and ~3.7k reads for ~7,900 comments), well insid
 `.github/workflows/crawl.yml` runs every 12 hours (04:17 and 16:17 UTC) and on manual dispatch (inputs: sources,
 max articles, since hours). It uses the organisation secret `FIREBASE_SERVICE_ACCOUNT`, never runs two crawls
 concurrently and stops starting new articles after 95 minutes. `.github/workflows/ci.yml` runs ruff (lint +
-format) and pytest on Python 3.11 and 3.13 for every push and pull request.
+format) and pytest on Python 3.11 and 3.13 for every push to main and every pull request (not for changes to
+Markdown files only; a newer push cancels the running check). Actions are pinned by commit SHA, checkouts keep no
+token (`persist-credentials: false`), and Dependabot (`.github/dependabot.yml`) opens a grouped update PR per month
+for the actions and the pip dependencies.
 
 **Triggering.** GitHub's `schedule` started crawls 2.5–6 h late, so the runs are started by Cloud Scheduler
 (job `meinungspuls-crawl` in the GCP project `meinungspuls-hu`, 04:17 / 16:17 UTC), which calls the API
