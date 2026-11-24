@@ -2,7 +2,8 @@
 
 Authentication: a service account from ``FIREBASE_SERVICE_ACCOUNT`` (the full JSON
 key as a string, used in GitHub Actions) or ``GOOGLE_APPLICATION_CREDENTIALS``
-(path to the key file, for local runs).
+(path to the key file, for local runs; or to the ``external_account`` file that
+``google-github-actions/auth`` writes for Workload Identity Federation, see README).
 
 Writes go through ``documents:batchWrite`` (max 500 writes per call). Unlike
 ``commit`` it applies every write independently and reports a status per write,
@@ -24,6 +25,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from google.auth import credentials as ga_credentials
+from google.auth import identity_pool
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
@@ -128,13 +131,18 @@ class WriteResult:
     failed: list[tuple[Write, dict[str, Any]]] = field(default_factory=list)
 
 
-def load_credentials() -> service_account.Credentials:
+def load_credentials() -> ga_credentials.Credentials:
     raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "").strip()
     if raw:
         info = json.loads(raw)
         return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
     path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
     if path:
+        with open(path, encoding="utf-8") as f:
+            kind = json.load(f).get("type")
+        if kind == "external_account":
+            # Workload Identity Federation (GitHub OIDC token -> STS -> service account impersonation)
+            return identity_pool.Credentials.from_file(path, scopes=SCOPES)
         return service_account.Credentials.from_service_account_file(path, scopes=SCOPES)
     raise RuntimeError(
         "No Firestore credentials: set FIREBASE_SERVICE_ACCOUNT (JSON key) or "

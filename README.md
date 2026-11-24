@@ -629,7 +629,7 @@ job summary.
 | variable | purpose |
 |---|---|
 | `FIREBASE_SERVICE_ACCOUNT` | full service account JSON key as a string (used in CI) |
-| `GOOGLE_APPLICATION_CREDENTIALS` | path to the service account key file (local runs) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | path to the service account key file (local runs), or to the `external_account` file of keyless auth |
 | `FIRESTORE_PROJECT` / `FIRESTORE_DATABASE` | default `meinungspuls-hu` / `(default)` |
 | `CRAWLER_MIN_DELAY` | minimum seconds between requests per host, default `1.5` |
 | `JETSTREAM_LIVE_SECONDS` | length of the Bluesky Jetstream live window per run, default `300` |
@@ -639,8 +639,8 @@ job summary.
 | `DERSTANDARD_HASH_FORUMINFO`, `DERSTANDARD_HASH_THREADS` | override derStandard persisted query hashes |
 | `LOG_LEVEL`, `LOG_FORMAT` | logging defaults (`INFO`, `text`) |
 
-Firestore is accessed **only over the REST API** (`google.oauth2.service_account` +
-`google.auth.transport.requests.AuthorizedSession`), not gRPC.
+Firestore is accessed **only over the REST API** (`google.oauth2.service_account`, or `google.auth.identity_pool`
+for keyless auth, + `google.auth.transport.requests.AuthorizedSession`), not gRPC.
 
 ## Volume caps and Firestore cost
 
@@ -796,6 +796,44 @@ changing the dependencies in `pyproject.toml`, regenerate the file with the comm
 `workflow_dispatch` with the input `trigger=vercel-cron` (the value is historical, from when the cron ran on Vercel). The `schedule` stays as a fallback: the `gate` job
 (`actions: read`) skips a scheduled run when a successful or still queued/running crawl was created since one hour
 before its slot, and drops duplicate cron deliveries (another run within 3 h). Manual runs are never skipped.
+
+## Keyless auth (optional)
+
+`crawl.yml` can authenticate without the long-lived JSON key: GitHub's OIDC token is exchanged through Workload
+Identity Federation for a short-lived token of a service account that may only use Firestore. Until the repository
+variables `GCP_WIF_PROVIDER` and `GCP_SERVICE_ACCOUNT` are set, nothing changes (the auth step is skipped, the secret
+`FIREBASE_SERVICE_ACCOUNT` is used). Once both are set, the job runs `google-github-actions/auth`, which writes an
+`external_account` credentials file (`GOOGLE_APPLICATION_CREDENTIALS`), and the secret is no longer passed to the
+crawler. One-time setup (project owner; the pool and provider are shared with the analysis repo, create them once):
+
+```bash
+PROJECT=meinungspuls-hu
+NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber)')
+gcloud services enable iamcredentials.googleapis.com sts.googleapis.com --project $PROJECT
+
+# pool + provider: only tokens of the two repos, on main, of the organisation semester-projekt-hu-berlin
+gcloud iam workload-identity-pools create github --project $PROJECT --location global --display-name "GitHub Actions"
+gcloud iam workload-identity-pools providers create-oidc meinungspuls --project $PROJECT --location global \
+  --workload-identity-pool github --issuer-uri https://token.actions.githubusercontent.com \
+  --attribute-mapping 'google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.ref=assertion.ref' \
+  --attribute-condition "assertion.repository_owner == 'semester-projekt-hu-berlin' && assertion.repository in ['semester-projekt-hu-berlin/crawler', 'semester-projekt-hu-berlin/analysis'] && assertion.ref == 'refs/heads/main'"
+
+# a service account for the crawler only, Firestore read/write, usable only from this repo
+gcloud iam service-accounts create crawler-gha --project $PROJECT --display-name "crawler (GitHub Actions)"
+gcloud projects add-iam-policy-binding $PROJECT --condition=None \
+  --member serviceAccount:crawler-gha@$PROJECT.iam.gserviceaccount.com --role roles/datastore.user
+gcloud iam service-accounts add-iam-policy-binding crawler-gha@$PROJECT.iam.gserviceaccount.com --project $PROJECT \
+  --role roles/iam.workloadIdentityUser \
+  --member "principalSet://iam.googleapis.com/projects/$NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/semester-projekt-hu-berlin/crawler"
+
+# switch the workflow over (repository variables, not organisation ones: each repo has its own account)
+gh variable set GCP_WIF_PROVIDER -R semester-projekt-hu-berlin/crawler \
+  --body "projects/$NUMBER/locations/global/workloadIdentityPools/github/providers/meinungspuls"
+gh variable set GCP_SERVICE_ACCOUNT -R semester-projekt-hu-berlin/crawler --body crawler-gha@$PROJECT.iam.gserviceaccount.com
+```
+
+Then dispatch one crawl and check that it writes. To go back, delete the two variables. Once both repos run keyless,
+the organisation secret and its key can be deleted (`gcloud iam service-accounts keys list/delete`).
 
 ## Known limitations
 

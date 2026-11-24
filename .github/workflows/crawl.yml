@@ -104,10 +104,24 @@ jobs:
     if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 115
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC token, only used for keyless auth (see the next step)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+
+      # Keyless auth (optional, see README): once the repository variables GCP_WIF_PROVIDER and
+      # GCP_SERVICE_ACCOUNT are set, the job gets short-lived credentials through Workload Identity
+      # Federation (GOOGLE_APPLICATION_CREDENTIALS) and the JSON key below is not passed. Without them,
+      # nothing changes: the step is skipped and the secret FIREBASE_SERVICE_ACCOUNT is used.
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        if: vars.GCP_WIF_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != ''
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -123,7 +137,8 @@ jobs:
 
       - name: Crawl
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # the key would take precedence over the keyless credentials, so it is left out when they are set
+          FIREBASE_SERVICE_ACCOUNT: ${{ (vars.GCP_WIF_PROVIDER == '' || vars.GCP_SERVICE_ACCOUNT == '') && secrets.FIREBASE_SERVICE_ACCOUNT || '' }}
           LOG_FORMAT: json
           SOURCES: ${{ inputs.sources || 'all' }}
           MAX_ARTICLES: ${{ inputs.max_articles || '500' }}
