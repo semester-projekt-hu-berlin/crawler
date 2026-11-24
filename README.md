@@ -458,6 +458,9 @@ Researched on 26 Oct 2026, kept for later (or for a decision of the team):
   targets. At most one request every 1.5 s per host (more if `Crawl-delay` says so), one worker per source,
   retries with exponential backoff on 429/5xx honouring `Retry-After` (when the crawler gives up on a URL, the
   host still gets the pause before its next request). Revisits back off as articles age.
+- **Response size:** a response body is read up to 32 MB after decompression (`MAX_RESPONSE_BYTES`; the largest
+  page we read, tagesschau.de's front page, is ~1.4 MB); a larger one fails that URL (`http.too_large`) instead of
+  filling the runner's memory.
 
 ## Architecture
 

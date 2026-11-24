@@ -336,11 +336,16 @@ def test_max_retries_zero_makes_one_request_and_defers_the_host_instead_of_sleep
         headers = {"Retry-After": "30"}
         content = b""
         is_redirect = False
+        url = "https://det.social/api/v1/timelines/public"
 
         class raw:  # noqa: N801
             @staticmethod
             def tell():
                 return 0
+
+        @staticmethod
+        def iter_content(chunk_size):
+            return iter(())
 
     session = PoliteSession(min_delay=0)
     calls, slept = [], []
@@ -365,6 +370,47 @@ def test_max_retries_zero_makes_one_request_and_defers_the_host_instead_of_sleep
     except requests.HTTPError:
         pass
     assert len(calls) == http_mod.MAX_RETRIES + 1 and slept == [30.0] * http_mod.MAX_RETRIES
+
+
+def _streamed_response(body: bytes, headers: dict[str, str] | None = None):
+    import io
+
+    import requests
+
+    resp = requests.Response()
+    resp.status_code = 200
+    resp.url = "https://s.example/big"
+    resp.headers.update(headers or {})
+    resp.raw = io.BytesIO(body)
+    return resp
+
+
+def test_response_body_is_capped_and_not_retried(monkeypatch):
+    import pytest
+
+    from crawler.http import PoliteSession, ResponseTooLarge
+
+    session = PoliteSession(min_delay=0, max_bytes=1000)
+    monkeypatch.setattr(session.robots, "can_fetch", lambda url: True)
+    monkeypatch.setattr(session.robots, "crawl_delay", lambda url: None)
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append(kw)
+        return _streamed_response(b"x" * 1001)
+
+    monkeypatch.setattr(session.session, "get", fake_get)
+    with pytest.raises(ResponseTooLarge):
+        session.get("https://s.example/big")
+    assert len(calls) == 1 and calls[0]["stream"] is True
+    # a declared length above the cap is refused before the body is read
+    monkeypatch.setattr(session.session, "get", lambda url, **kw: _streamed_response(b"", {"Content-Length": "5000"}))
+    with pytest.raises(ResponseTooLarge):
+        session.get("https://s.example/big")
+    # within the cap the body is available as usual
+    monkeypatch.setattr(session.session, "get", lambda url, **kw: _streamed_response(b'{"a": 1}'))
+    assert session.get_json("https://s.example/ok") == {"a": 1}
+    assert session.bytes_received > 0
 
 
 def test_all_leaves_out_default_disabled_sources_but_naming_one_runs_it():

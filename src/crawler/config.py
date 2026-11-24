@@ -25,6 +25,9 @@ HOST_MIN_DELAY: dict[str, float] = {
 }
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
+# Upper bound for one response body after decompression. The largest pages and feeds we read are a
+# few MB; a broken or hostile server (or a gzip bomb) must not exhaust the runner's memory.
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
 # Articles are revisited for new comments for this many days after publication.
 REVISIT_DAYS = 3.0

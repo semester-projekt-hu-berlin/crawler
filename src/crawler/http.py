@@ -10,7 +10,14 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 
-from crawler.config import HOST_MIN_DELAY, MAX_RETRIES, MIN_DELAY_PER_HOST, REQUEST_TIMEOUT, USER_AGENT
+from crawler.config import (
+    HOST_MIN_DELAY,
+    MAX_RESPONSE_BYTES,
+    MAX_RETRIES,
+    MIN_DELAY_PER_HOST,
+    REQUEST_TIMEOUT,
+    USER_AGENT,
+)
 from crawler.logging_setup import log_event
 from crawler.robots import RobotsCache
 
@@ -19,6 +26,26 @@ log = logging.getLogger(__name__)
 
 class RobotsDisallowed(Exception):
     """Raised when robots.txt forbids fetching a URL. The URL is then skipped."""
+
+
+class ResponseTooLarge(requests.RequestException):
+    """Raised when a response body exceeds ``MAX_RESPONSE_BYTES`` (not retried)."""
+
+
+def _read_body(resp: requests.Response, limit: int) -> None:
+    """Read a streamed response into ``resp.content``, giving up beyond ``limit`` decoded bytes."""
+    length = resp.headers.get("Content-Length", "")
+    if length.isdigit() and int(length) > limit:
+        resp.close()
+        raise ResponseTooLarge(f"{resp.url}: Content-Length {length} exceeds {limit} bytes")
+    chunks, size = [], 0
+    for chunk in resp.iter_content(64 * 1024):
+        size += len(chunk)
+        if size > limit:
+            resp.close()
+            raise ResponseTooLarge(f"{resp.url}: body exceeds {limit} bytes")
+        chunks.append(chunk)
+    resp._content = b"".join(chunks)
 
 
 class _HostThrottle:
@@ -46,10 +73,16 @@ class PoliteSession:
     2. waits until at least ``max(min_delay, Crawl-delay)`` seconds passed since the
        previous request to the same host,
     3. is retried on network errors, 429 and 5xx with exponential backoff
-       (``Retry-After`` is honoured).
+       (``Retry-After`` is honoured),
+    4. is read up to ``max_bytes`` (decompressed); a larger body raises :class:`ResponseTooLarge`.
     """
 
-    def __init__(self, min_delay: float = MIN_DELAY_PER_HOST, user_agent: str = USER_AGENT) -> None:
+    def __init__(
+        self,
+        min_delay: float = MIN_DELAY_PER_HOST,
+        user_agent: str = USER_AGENT,
+        max_bytes: int = MAX_RESPONSE_BYTES,
+    ) -> None:
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -60,6 +93,7 @@ class PoliteSession:
             }
         )
         self.min_delay = min_delay
+        self.max_bytes = max_bytes
         self.robots = RobotsCache(self.session)
         self._throttles: dict[str, _HostThrottle] = {}
         self._lock = threading.Lock()
@@ -112,7 +146,13 @@ class PoliteSession:
             with self._lock:
                 self.request_count += 1
             try:
-                resp = self.session.get(full_url, headers=headers, timeout=REQUEST_TIMEOUT, allow_redirects=False)
+                resp = self.session.get(
+                    full_url, headers=headers, timeout=REQUEST_TIMEOUT, allow_redirects=False, stream=True
+                )
+                _read_body(resp, self.max_bytes)
+            except ResponseTooLarge as exc:
+                log_event(log, "http.too_large", logging.WARNING, url=full_url, error=str(exc))
+                raise
             except requests.RequestException as exc:
                 last_exc = exc
                 log_event(log, "http.error", logging.WARNING, url=full_url, attempt=attempt, error=str(exc))
@@ -121,8 +161,7 @@ class PoliteSession:
                 else:
                     time.sleep(2**attempt * 2)
                 continue
-            _ = resp.content  # read the body so the raw (compressed) byte count is final
-            try:
+            try:  # the body is read, so the raw (compressed) byte count is final
                 wire = int(resp.raw.tell())
             except (AttributeError, TypeError, ValueError):
                 wire = 0
