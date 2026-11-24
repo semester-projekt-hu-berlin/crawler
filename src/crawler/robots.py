@@ -20,6 +20,10 @@ Fetch outcomes (RFC 9309, section 2.3.1):
 * 2xx: parse and obey.
 * 4xx ("unavailable"): the crawler may access any resource on that host.
 * 5xx / network error ("unreachable"): assume complete disallow.
+
+Redirects are followed up to five times (section 2.3.1.2); more count as unreachable. Only the first
+``ROBOTS_MAX_BYTES`` (512 KiB, section 2.5 asks for a parsing limit of at least 500 KiB) of the
+decompressed file are read and parsed; the rest is ignored.
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ import re
 import threading
 import urllib.robotparser
 from dataclasses import dataclass
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 import requests
 
@@ -38,6 +42,37 @@ from crawler.config import REQUEST_TIMEOUT, ROBOTS_AGENT, USER_AGENT
 from crawler.logging_setup import log_event
 
 log = logging.getLogger(__name__)
+
+# RFC 9309 section 2.5: crawlers parse at least 500 KiB; anything after the limit is ignored.
+ROBOTS_MAX_BYTES = 512 * 1024
+# RFC 9309 section 2.3.1.2: follow at least five consecutive redirects.
+ROBOTS_MAX_REDIRECTS = 5
+
+
+def _read_capped(resp: requests.Response, limit: int) -> tuple[str, bool]:
+    """Decoded text of the first ``limit`` (decompressed) bytes of a streamed response, cut at the last
+    complete line when truncated, and whether it was truncated."""
+    chunks, size, truncated = [], 0, False
+    try:
+        for chunk in resp.iter_content(64 * 1024):
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > limit:
+                truncated = True
+                break
+    finally:
+        resp.close()
+    body = b"".join(chunks)
+    if truncated:
+        body = body[:limit]
+        cut = max(body.rfind(b"\n"), body.rfind(b"\r"))
+        if cut >= 0:
+            body = body[: cut + 1]
+    encoding = resp.encoding if resp.encoding and "charset" in resp.headers.get("Content-Type", "").lower() else None
+    try:
+        return body.decode(encoding or "utf-8", errors="replace"), truncated
+    except LookupError:  # unknown charset name
+        return body.decode("utf-8", errors="replace"), truncated
 
 
 def _pattern_to_regex(pattern: str) -> re.Pattern[str]:
@@ -172,8 +207,26 @@ class RobotsCache:
 
     def _fetch(self, origin: str) -> RobotsPolicy:
         robots_url = f"{origin}/robots.txt"
+        current = robots_url
         try:
-            resp = self._session.get(robots_url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
+            for _ in range(ROBOTS_MAX_REDIRECTS + 1):
+                resp = self._session.get(
+                    current,
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=REQUEST_TIMEOUT,
+                    allow_redirects=False,
+                    stream=True,
+                )
+                if not (resp.is_redirect and resp.headers.get("Location")):
+                    break
+                resp.close()
+                current = urljoin(current, resp.headers["Location"])
+            else:
+                raise requests.TooManyRedirects(f"more than {ROBOTS_MAX_REDIRECTS} redirects")
+            if resp.status_code < 400:
+                text, truncated = _read_capped(resp, ROBOTS_MAX_BYTES)
+            else:
+                resp.close()
         except requests.RequestException as exc:
             log_event(log, "robots.unreachable", logging.WARNING, url=robots_url, error=str(exc))
             return RobotsPolicy(None, disallow_all=True)
@@ -183,7 +236,9 @@ class RobotsCache:
         if resp.status_code >= 400:
             log_event(log, "robots.unavailable", url=robots_url, status=resp.status_code, rule="RFC 9309: allow")
             return RobotsPolicy(None, allow_all=True)
-        policy = RobotsPolicy(resp.text)
+        if truncated:
+            log_event(log, "robots.truncated", logging.WARNING, url=robots_url, limit=ROBOTS_MAX_BYTES)
+        policy = RobotsPolicy(text)
         log_event(log, "robots.loaded", url=robots_url, rules=len(policy.rules), crawl_delay=policy.crawl_delay)
         return policy
 
