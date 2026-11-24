@@ -785,7 +785,10 @@ concurrently and stops starting new articles after 95 minutes. `.github/workflow
 format) and pytest on Python 3.11 and 3.13 for every push to main and every pull request (not for changes to
 Markdown files only; a newer push cancels the running check). Actions are pinned by commit SHA, checkouts keep no
 token (`persist-credentials: false`), and Dependabot (`.github/dependabot.yml`) opens a grouped update PR per month
-for the actions and the pip dependencies.
+for the actions and the pip dependencies. Both workflows install the exact versions with hashes from
+`requirements.txt` (`pip install --require-hashes --no-deps -r requirements.txt`, then `pip install --no-deps .`);
+CI also runs `pip check`, so an incomplete or inconsistent update fails there. Dependabot bumps these pins; after
+changing the dependencies in `pyproject.toml`, regenerate the file with the command in its header.
 
 **Triggering.** GitHub's `schedule` started crawls 2.5–6 h late, so the runs are started by Cloud Scheduler
 (job `meinungspuls-crawl` in the GCP project `meinungspuls-hu`, 04:17 / 16:17 UTC), which calls the API
